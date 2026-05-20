@@ -7,7 +7,7 @@ const MERCHANT_PLANS = [
   {
     id: "startup",
     name: "Startup",
-    revenue: "Up to $10K/year",
+    revenue: "Up to €10K/year",
     price: "1.25%",
     fx: "1.00%",
     description: "AI Revenue Booster, Basic Cash Flow Predictor",
@@ -31,7 +31,7 @@ const MERCHANT_PLANS = [
   {
     id: "growth",
     name: "Growth",
-    revenue: "$10K–$50K/year",
+    revenue: "€10K–€50K/year",
     price: "1.75%",
     fx: "0.85%",
     description: "Auto-Personalized Marketing, AI Upsell Assistant",
@@ -53,7 +53,7 @@ const MERCHANT_PLANS = [
   {
     id: "scale",
     name: "Scale",
-    revenue: "$50K–$100K/year",
+    revenue: "€50K–€100K/year",
     price: "2.25%",
     fx: "0.70%",
     description: "Smart Pricing Engine, Customer Lifetime Value",
@@ -73,7 +73,7 @@ const MERCHANT_PLANS = [
   {
     id: "premium",
     name: "Premium",
-    revenue: "$100K+/year",
+    revenue: "€100K+/year",
     price: "2.75% capped",
     fx: "0.60%",
     description: "AI Customer Recovery, Dynamic demand pricing",
@@ -92,7 +92,7 @@ const MERCHANT_PLANS = [
   {
     id: "retention",
     name: "Retention",
-    revenue: "$400K+/year",
+    revenue: "€400K+/year",
     price: "2.35%",
     fx: "0.50%",
     description: "Retention-focused AI campaigns, Profitability optimization",
@@ -109,7 +109,7 @@ const MERCHANT_PLANS = [
   {
     id: "enterprise",
     name: "Enterprise",
-    revenue: "$500K+/year",
+    revenue: "€500K+/year",
     price: "2.20% enterprise cap",
     fx: "0.45%",
     description: "AI call handling, Custom workflows, API customization",

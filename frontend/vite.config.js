@@ -6,11 +6,22 @@ module.exports = defineConfig({
   build: {
     outDir: "dist",
     assetsDir: "assets",
-    sourcemap: true,
+    sourcemap: false,
     minify: "esbuild",
+    cssCodeSplit: true,
     rollupOptions: {
-      input: "index.html"
-    }
+      input: "index.html",
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            if (id.includes("react")) return "vendor";
+            if (id.includes("qrcode")) return "qrcode";
+          }
+        }
+      }
+    },
+    target: "esnext",
+    chunkSizeWarningLimit: 1000
   },
   server: {
     port: 5173,
