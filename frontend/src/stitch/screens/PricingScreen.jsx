@@ -33,7 +33,7 @@ const CONSUMER_PLANS = [
       { text: "AI Financial Autopilot", included: false },
       { text: "AI Negotiator", included: false }
     ],
-    limits: { fxFee: "1.45%", monthlyCap: "$400", fxFree: "$0" },
+    limits: { fxFee: "1.45%", monthlyCap: "€400", fxFree: "€0" },
     cta: "Current Plan",
     popular: false
   },
@@ -448,7 +448,7 @@ export default function PricingScreen({ currentPlan = "free_trial", onSelectPlan
                   </div>
                 ) : (
                   <div className="plan-price">
-                    <span className="currency">$</span>
+                    <span className="currency">€</span>
                     <span className="amount">{plan.price}</span>
                     <span className="period">/{plan.period}</span>
                   </div>
