@@ -176,6 +176,55 @@
   border-color: rgba(0, 214, 125, 0.4);
 }
 
+.merchant-plan-card.popular {
+  position: relative;
+  border-color: #54c3ff;
+  background: linear-gradient(135deg, rgba(84, 195, 255, 0.12) 0%, rgba(15, 39, 96, 0.4) 50%, rgba(18, 18, 18, 0.95) 100%);
+  box-shadow:
+    0 0 25px rgba(84, 195, 255, 0.45),
+    0 0 50px rgba(84, 195, 255, 0.35);
+  animation: merchantPopularGlow 3s infinite ease-in-out;
+  overflow: visible;
+}
+
+.merchant-plan-card.popular::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(84, 195, 255, 0.15), transparent);
+  animation: lightningSweep 2.5s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.merchant-plan-card.popular::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #54c3ff, #00bfff, transparent);
+  background-size: 200% 100%;
+  animation: shimmer 3s linear infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.merchant-plan-card.popular:hover {
+  border-color: #54c3ff;
+  box-shadow:
+    0 0 40px rgba(84, 195, 255, 0.3),
+    0 0 60px rgba(84, 195, 255, 0.2),
+    0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes merchantPopularGlow {
+  0% { transform: scale(1); box-shadow: 0 0 25px rgba(84, 195, 255, 0.45), 0 0 50px rgba(84, 195, 255, 0.35); }
+  50% { transform: scale(1.01); box-shadow: 0 0 35px rgba(84, 195, 255, 0.65), 0 0 70px rgba(84, 195, 255, 0.45); }
+  100% { transform: scale(1); box-shadow: 0 0 25px rgba(84, 195, 255, 0.45), 0 0 50px rgba(84, 195, 255, 0.35); }
+}
+
 .merchant-plan-card.popular .popular-badge {
   position: absolute;
   top: -12px;
@@ -186,8 +235,18 @@
   padding: 6px 14px;
   border-radius: 20px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   z-index: 10;
+  box-shadow: 0 0 20px rgba(84, 195, 255, 0.4);
+  animation: popularBadgePulse 2s ease-in-out infinite;
+  text-shadow:
+    0 0 10px rgba(84, 195, 255, 0.8),
+    0 0 18px rgba(84, 195, 255, 0.6);
+}
+
+@keyframes popularBadgePulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(84, 195, 255, 0.4); }
+  50% { box-shadow: 0 0 30px rgba(84, 195, 255, 0.6); }
 }
 
 .merchant-plan-header {
@@ -204,6 +263,14 @@
   margin: 0;
 }
 
+.merchant-plan-card.popular .merchant-plan-header h2 {
+  color: #54c3ff;
+  text-shadow:
+    0 0 8px rgba(84, 195, 255, 0.8),
+    0 0 16px rgba(84, 195, 255, 0.6),
+    0 0 28px rgba(84, 195, 255, 0.4);
+}
+
 .merchant-revenue-badge {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.6);
@@ -211,6 +278,12 @@
   padding: 4px 10px;
   border-radius: 12px;
   white-space: nowrap;
+}
+
+.merchant-plan-card.popular .merchant-revenue-badge {
+  color: rgba(84, 195, 255, 0.9);
+  background: rgba(84, 195, 255, 0.15);
+  box-shadow: 0 0 10px rgba(84, 195, 255, 0.2);
 }
 
 .merchant-pricing-row {
@@ -230,16 +303,32 @@
   border-radius: 10px;
 }
 
+.merchant-plan-card.popular .merchant-price-box {
+  background: rgba(84, 195, 255, 0.1);
+  box-shadow: 0 0 15px rgba(84, 195, 255, 0.15);
+}
+
 .merchant-price-label {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.5);
   margin-bottom: 4px;
 }
 
+.merchant-plan-card.popular .merchant-price-label {
+  color: rgba(84, 195, 255, 0.8);
+}
+
 .merchant-price-value {
   font-size: 18px;
   font-weight: 700;
   color: #54c3ff;
+}
+
+.merchant-plan-card.popular .merchant-price-value {
+  color: #54c3ff;
+  text-shadow:
+    0 0 8px rgba(84, 195, 255, 0.8),
+    0 0 16px rgba(84, 195, 255, 0.5);
 }
 
 .plan-desc {
