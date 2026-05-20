@@ -186,9 +186,49 @@
 }
 
 .pricing-card.popular {
+  position: relative;
   border-color: #54c3ff;
-  background: linear-gradient(180deg, rgba(15, 39, 96, 0.4) 0%, rgba(18, 18, 18, 0.9) 100%);
-  box-shadow: 0 0 40px rgba(84, 195, 255, 0.15);
+  background: linear-gradient(180deg, rgba(84, 195, 255, 0.15) 0%, rgba(15, 39, 96, 0.4) 50%, rgba(18, 18, 18, 0.9) 100%);
+  box-shadow:
+    0 0 30px rgba(84, 195, 255, 0.3),
+    0 0 60px rgba(84, 195, 255, 0.15),
+    inset 0 0 30px rgba(84, 195, 255, 0.05);
+  animation: popularGlow 3s infinite ease-in-out;
+  overflow: visible;
+}
+
+.pricing-card.popular::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(84, 195, 255, 0.15), transparent);
+  animation: popularSweep 3s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.pricing-card.popular::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #54c3ff, transparent);
+  animation: shimmer 3s linear infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes popularGlow {
+  0% { box-shadow: 0 0 30px rgba(84, 195, 255, 0.3), 0 0 60px rgba(84, 195, 255, 0.15), inset 0 0 30px rgba(84, 195, 255, 0.05); }
+  50% { box-shadow: 0 0 40px rgba(84, 195, 255, 0.45), 0 0 80px rgba(84, 195, 255, 0.25), inset 0 0 40px rgba(84, 195, 255, 0.08); }
+  100% { box-shadow: 0 0 30px rgba(84, 195, 255, 0.3), 0 0 60px rgba(84, 195, 255, 0.15), inset 0 0 30px rgba(84, 195, 255, 0.05); }
+}
+
+@keyframes popularSweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 .pricing-card.legendary {
@@ -263,6 +303,13 @@
   font-weight: 600;
   white-space: nowrap;
   z-index: 10;
+  box-shadow: 0 0 15px rgba(84, 195, 255, 0.4);
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% { box-shadow: 0 0 15px rgba(84, 195, 255, 0.4); }
+  50% { box-shadow: 0 0 25px rgba(84, 195, 255, 0.6); }
 }
 
 .legendary-badge {
