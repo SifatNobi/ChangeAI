@@ -26,6 +26,8 @@ import WaitlistScreen from "./stitch/screens/WaitlistScreen";
 import { QRPaymentScanner } from "./components/QRSystem";
 import AIAssistant from "./components/AIAssistant";
 import { UserOnboarding, MerchantOnboarding } from "./components/OnboardingFlow";
+import ErrorBoundary from "./utils/errorBoundary";
+import { safeGetFromStorage, safeSetStorage, safeClearStorage } from "./utils/storage";
 
 const UserDashboard = React.lazy(() => import("./components/UserDashboard"));
 const MerchantDashboard = React.lazy(() => import("./components/MerchantDashboard"));
@@ -127,72 +129,69 @@ function App() {
 
   const stableNavigate = useCallback((...args) => navigateRef.current(...args), []);
 
+  // Initialize state safely from storage with proper defaults
   const [token, setTokenState] = useState(() => {
-    const cached = sessionStorage.getItem("changeaipay_session");
-    if (cached) {
-      try {
-        const { token: t, expires } = JSON.parse(cached);
-        if (expires && Date.now() < expires) return t;
-        sessionStorage.removeItem("changeaipay_session");
-      } catch {}
+    const cached = safeGetFromStorage("changeaipay_session", null, true);
+    if (cached?.token && cached?.expires && Date.now() < cached.expires) {
+      return cached.token;
     }
-    return getToken();
+    safeClearStorage("changeaipay_session", true);
+    return getToken() || "";
   });
+
   const [profile, setProfile] = useState(() => {
-    const cached = sessionStorage.getItem("changeaipay_profile");
-    if (cached) {
-      try {
-        return JSON.parse(cached);
-      } catch {}
-    }
-    return null;
+    const cached = safeGetFromStorage("changeaipay_profile", null, true);
+    return cached || null;
   });
-  const [bootStatus, setBootStatus] = useState("idle");
+
+  const [bootStatus, setBootStatus] = useState(token ? "loading" : "idle");
   const [authStatus, setAuthStatus] = useState({ loading: false, error: "" });
   const [onboardingComplete, setOnboardingComplete] = useState(
-    localStorage.getItem("changeaipay_onboarding") === "true"
+    safeGetFromStorage("changeaipay_onboarding", false) === true
   );
   const [paymentContext, setPaymentContext] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("changeaipay_payment_context") || "null");
-    } catch {
-      return null;
-    }
+    return safeGetFromStorage("changeaipay_payment_context", null, false);
   });
 
   const profileRef = useRef(profile);
   profileRef.current = profile;
+  const bootTimeoutRef = useRef(null);
 
   const cacheProfile = useCallback((data) => {
     setProfile(data || {});
-    try {
-      sessionStorage.setItem("changeaipay_profile", JSON.stringify(data || {}));
-    } catch {}
+    safeSetStorage("changeaipay_profile", data || {}, true);
   }, []);
 
   const cacheSession = useCallback((t) => {
-    try {
-      const session = { token: t, expires: Date.now() + 24 * 60 * 60 * 1000 };
-      sessionStorage.setItem("changeaipay_session", JSON.stringify(session));
-    } catch {}
+    const session = { token: t, expires: Date.now() + 24 * 60 * 60 * 1000 };
+    safeSetStorage("changeaipay_session", session, true);
   }, []);
 
   const logout = useCallback(() => {
     clearToken();
     setTokenState("");
     setProfile(null);
-    sessionStorage.removeItem("changeaipay_session");
-    sessionStorage.removeItem("changeaipay_profile");
+    safeClearStorage("changeaipay_session", true);
+    safeClearStorage("changeaipay_profile", true);
     navigate("/login");
   }, [navigate]);
 
   const loadProfile = useCallback(async (forceRefresh = false) => {
     if (!token) return null;
     if (!forceRefresh && profileRef.current) return profileRef.current;
-    const data = await getUserProfile(token);
-    cacheProfile(data);
-    return data;
-  }, [token, cacheProfile]);
+    
+    try {
+      const data = await getUserProfile(token);
+      cacheProfile(data);
+      return data;
+    } catch (err) {
+      console.error("Failed to load profile:", err);
+      if (err.status === 401 || err.status === 403) {
+        logout();
+      }
+      throw err;
+    }
+  }, [token, cacheProfile, logout]);
 
   const loadHistory = useCallback(
     async ({ limit } = {}) => {
@@ -202,35 +201,58 @@ function App() {
     [token]
   );
 
+  // Boot auth on mount and token change - with timeout protection
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setBootStatus("idle");
+      return;
+    }
 
     setBootStatus("loading");
 
+    // Set a timeout to prevent infinite loading states
+    bootTimeoutRef.current = setTimeout(() => {
+      if (token) {
+        setBootStatus("ready");
+      }
+    }, 10000);
+
     loadProfile()
-      .then(() => setBootStatus("ready"))
-      .catch(() => {
+      .then(() => {
+        if (bootTimeoutRef.current) {
+          clearTimeout(bootTimeoutRef.current);
+          bootTimeoutRef.current = null;
+        }
+        setBootStatus("ready");
+      })
+      .catch((err) => {
+        if (bootTimeoutRef.current) {
+          clearTimeout(bootTimeoutRef.current);
+          bootTimeoutRef.current = null;
+        }
         setProfile(null);
         setBootStatus("idle");
         clearToken();
         setTokenState("");
-        sessionStorage.removeItem("changeaipay_session");
-        sessionStorage.removeItem("changeaipay_profile");
+        safeClearStorage("changeaipay_session", true);
+        safeClearStorage("changeaipay_profile", true);
       });
+
+    return () => {
+      if (bootTimeoutRef.current) {
+        clearTimeout(bootTimeoutRef.current);
+        bootTimeoutRef.current = null;
+      }
+    };
   }, [token, loadProfile]);
 
   const storePaymentContext = useCallback((context) => {
-    try {
-      const saved = { ...context, savedAt: new Date().toISOString() };
-      localStorage.setItem("changeaipay_payment_context", JSON.stringify(saved));
-      setPaymentContext(saved);
-    } catch {
-      setPaymentContext(context);
-    }
+    safeSetStorage("changeaipay_payment_context", { ...context, savedAt: new Date().toISOString() }, false);
+    setPaymentContext(context);
   }, []);
 
   const clearPaymentContext = useCallback(() => {
-    localStorage.removeItem("changeaipay_payment_context");
+    safeClearStorage("changeaipay_payment_context", false);
     setPaymentContext(null);
   }, []);
 
@@ -340,7 +362,7 @@ function App() {
   }, [profile, token, loadHistory, stableNavigate]);
 
   return (
-    <>
+    <ErrorBoundary>
       <AIAssistant userId={profile?.id} subscription={profile?.subscription} paymentContext={paymentContext} onNavigate={navigate} />
       <WelcomeMessage profile={profile} />
       <Routes>
@@ -528,7 +550,7 @@ function App() {
 
         <Route path="*" element={<Navigate to={token ? "/dashboard" : "/login"} />} />
       </Routes>
-    </>
+    </ErrorBoundary>
   );
 }
 

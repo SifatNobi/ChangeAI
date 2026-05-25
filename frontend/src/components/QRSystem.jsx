@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import QRCode from "qrcode";
 import "./QRSystem.css";
@@ -6,14 +6,20 @@ import "./QRSystem.css";
 const NANO_ADDRESS_REGEX = /^nano_[13][13456789abcdefghijkmnopqrstuwxyz]{59}$/i;
 const SCAN_COOLDOWN = 2000;
 const DUPLICATE_SCAN_WINDOW = 10000;
+const CAMERA_PERMISSION_TIMEOUT = 15000;
+const CAMERA_RESTART_DELAY = 3000;
 
 export function useQRScanner({ onScan, onError }) {
   const [isScanning, setIsScanning] = useState(false);
   const [hasPermission, setHasPermission] = useState(null);
   const [lastScanned, setLastScanned] = useState(null);
+  const [cameraError, setCameraError] = useState(null);
+  const [isPermissionDenied, setIsPermissionDenied] = useState(false);
   const scannerRef = useRef(null);
   const lastScanTimeRef = useRef(0);
   const lastScanTextRef = useRef(null);
+  const permissionTimeoutRef = useRef(null);
+  const cameraRestartRef = useRef(null);
 
   const validateNanoAddress = useCallback((text) => {
     const cleaned = String(text || "").trim().replace(/^nano:/i, "").split("?")[0];
@@ -178,56 +184,112 @@ export function useQRScanner({ onScan, onError }) {
     if (scannerRef.current) return;
 
     try {
+      // Clear any pending timeouts
+      if (permissionTimeoutRef.current) {
+        clearTimeout(permissionTimeoutRef.current);
+      }
+      if (cameraRestartRef.current) {
+        clearTimeout(cameraRestartRef.current);
+      }
+
+      setCameraError(null);
+      setIsPermissionDenied(false);
       const html5QrCode = new Html5Qrcode(elementId, { verbose: false });
       scannerRef.current = html5QrCode;
 
-      const cameras = await Html5Qrcode.getCameras();
-      if (!cameras || cameras.length === 0) {
-        throw new Error("No cameras found");
+      // Get cameras with timeout
+      let cameras = [];
+      try {
+        cameras = await Promise.race([
+          Html5Qrcode.getCameras(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Camera detection timeout")), CAMERA_PERMISSION_TIMEOUT)
+          )
+        ]);
+      } catch (err) {
+        throw new Error(`Failed to detect cameras: ${err.message}`);
       }
 
+      if (!cameras || cameras.length === 0) {
+        throw new Error("No cameras found on this device");
+      }
+
+      // Prefer rear camera for mobile
       const rearCamera = cameras.find((c) => /back|rear|environment|camera\d|back-facing/i.test(c.label)) || cameras[cameras.length - 1];
 
-      await html5QrCode.start(
-        rearCamera.id,
-        {
-          fps: 10,
-          qrbox: { width: 280, height: 280 },
-          aspectRatio: 1.0,
-          showTorchButtonIfSupported: true,
-          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
-        },
-        handleScanSuccess,
-        (errorMessage) => {
-          console.debug("QR scan frame:", errorMessage);
-        }
-      );
+      // Start camera with better config
+      try {
+        await html5QrCode.start(
+          rearCamera.id,
+          {
+            fps: 10,
+            qrbox: { width: 280, height: 280 },
+            aspectRatio: 1.0,
+            disableFlip: false,
+            showTorchButtonIfSupported: true,
+            formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
+          },
+          handleScanSuccess,
+          (errorMessage) => {
+            // Ignore frame error spam
+          }
+        );
+      } catch (err) {
+        throw new Error(`Failed to start camera: ${err.message}`);
+      }
 
       setIsScanning(true);
       setHasPermission(true);
+      setIsPermissionDenied(false);
+      setCameraError(null);
     } catch (err) {
-      if (err.name === "NotAllowedError" || err.name === "SecurityError" || err.name === "PermissionDeniedError") {
+      const errorName = err.name || "";
+      const errorMessage = err.message || "";
+      const isPermissionError = errorName === "NotAllowedError" || 
+                                 errorName === "SecurityError" || 
+                                 errorName === "PermissionDeniedError" ||
+                                 errorMessage.toLowerCase().includes("permission");
+
+      if (isPermissionError) {
         setHasPermission(false);
-        onError?.({ message: "Camera permission denied. Please allow camera access in your browser settings.", error: err });
-      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError" || err.message === "No cameras found") {
+        setIsPermissionDenied(true);
+        setCameraError("Camera permission denied. Please allow camera access in your browser settings and try again.");
+        onError?.({ 
+          message: "Camera permission denied. Please allow camera access in your browser settings.", 
+          error: err 
+        });
+      } else if (err.message === "No cameras found on this device" || errorName === "NotFoundError") {
         setHasPermission(false);
-        onError?.({ message: "No camera found on this device.", error: err });
+        setCameraError("No camera found on this device. Please use a device with a camera.");
+        onError?.({ 
+          message: "No camera found on this device.", 
+          error: err 
+        });
       } else {
         setHasPermission(false);
-        onError?.({ message: err.message || "Failed to start camera. Please try again.", error: err });
+        setCameraError(errorMessage || "Failed to start camera. Please try again.");
+        onError?.({ 
+          message: errorMessage || "Failed to start camera. Please try again.", 
+          error: err 
+        });
       }
+      
+      scannerRef.current = null;
+      setIsScanning(false);
     }
   }, [handleScanSuccess, onError]);
 
   const stopScanning = useCallback(async () => {
     if (scannerRef.current) {
       try {
+        // Properly stop the scanner and clean up resources
         await scannerRef.current.stop();
         await scannerRef.current.clear();
+        scannerRef.current = null;
       } catch (err) {
         console.log("Scanner cleanup error:", err);
+        scannerRef.current = null;
       }
-      scannerRef.current = null;
     }
     setIsScanning(false);
   }, []);
@@ -236,7 +298,7 @@ export function useQRScanner({ onScan, onError }) {
     if (scannerRef.current) {
       try {
         const capabilities = scannerRef.current.getRunningTrackCameraCapabilities();
-        if (capabilities.torchFeature().isSupported()) {
+        if (capabilities && capabilities.torchFeature && capabilities.torchFeature().isSupported()) {
           const currentState = await capabilities.torchFeature().value();
           await capabilities.torchFeature().apply(!currentState);
         }
@@ -246,8 +308,24 @@ export function useQRScanner({ onScan, onError }) {
     }
   }, []);
 
+  const requestPermissionRetry = useCallback(async (elementId) => {
+    setIsPermissionDenied(false);
+    await stopScanning();
+    // Delay before retrying to avoid rapid permission requests
+    cameraRestartRef.current = setTimeout(() => {
+      startScanning(elementId);
+    }, CAMERA_RESTART_DELAY);
+  }, [startScanning, stopScanning]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (permissionTimeoutRef.current) {
+        clearTimeout(permissionTimeoutRef.current);
+      }
+      if (cameraRestartRef.current) {
+        clearTimeout(cameraRestartRef.current);
+      }
       if (scannerRef.current) {
         scannerRef.current.stop().catch(() => {});
       }
@@ -258,9 +336,12 @@ export function useQRScanner({ onScan, onError }) {
     isScanning,
     hasPermission,
     lastScanned,
+    cameraError,
+    isPermissionDenied,
     startScanning,
     stopScanning,
     toggleTorch,
+    requestPermissionRetry,
     validateNanoAddress
   };
 }
@@ -369,6 +450,7 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
   const [scannedData, setScannedData] = useState(null);
   const [error, setError] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (walletAddress && mode === "receive") {
@@ -376,7 +458,15 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
     }
   }, [walletAddress, mode]);
 
-  const { startScanning, stopScanning, validateNanoAddress, hasPermission } = useQRScanner({
+  const { 
+    startScanning, 
+    stopScanning, 
+    validateNanoAddress, 
+    hasPermission,
+    isPermissionDenied,
+    cameraError,
+    requestPermissionRetry
+  } = useQRScanner({
     onScan: async (data) => {
       setScannedData(data);
       setRecipient(data.recipient || data.destination || "");
@@ -388,6 +478,7 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
       setReference(data.reference || "");
       setIsScanning(false);
       await stopScanning();
+      setError(null);
 
       onPaymentReady?.({
         recipient: data.recipient,

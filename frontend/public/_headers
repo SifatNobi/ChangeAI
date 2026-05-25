@@ -2,6 +2,9 @@
   Cache-Control: no-cache, no-store, must-revalidate
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
+  X-XSS-Protection: 1; mode=block
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
@@ -11,3 +14,10 @@
 
 /*.css
   Cache-Control: public, max-age=31536000, immutable
+
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/manifest.json
+  Cache-Control: no-cache, no-store, must-revalidate
+  Content-Type: application/manifest+json
