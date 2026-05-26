@@ -9,13 +9,7 @@ module.exports = defineConfig({
     outDir: "dist",
     assetsDir: "assets",
     sourcemap: false,
-    minify: "terser",
-    terserOptions: {
-      compress: {
-        drop_console: false,
-      },
-      mangle: true,
-    },
+    minify: "esbuild",
     cssCodeSplit: true,
     reportCompressedSize: false,
     rollupOptions: {
