@@ -61,6 +61,8 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   const [editingGoal, setEditingGoal] = useState(null);
   const [goalForm, setGoalForm] = useState({ name: "", target: "" });
   const scannerRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const scannerContainerRef = useRef(null);
   const statusRef = useRef(status);
   statusRef.current = status;
   const hasAutoSubmittedRef = useRef(false);
@@ -73,17 +75,32 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   const pollErrorCountRef = useRef(0);
   const maxPollErrors = 5;
 
+  const stopAllMediaTracks = useCallback(() => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+  }, []);
+
+  const destroyScanner = useCallback(async () => {
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.stop();
+        await scannerRef.current.clear();
+      } catch {}
+      scannerRef.current = null;
+    }
+    stopAllMediaTracks();
+  }, [stopAllMediaTracks]);
+
   useEffect(() => {
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {});
-        scannerRef.current.clear().catch(() => {});
-      }
+      destroyScanner();
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
       }
     };
-  }, []);
+  }, [destroyScanner]);
 
   useEffect(() => {
     try {
@@ -473,163 +490,240 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   const onClearContextRef = useRef(onClearContext);
   onClearContextRef.current = onClearContext;
 
-  const stopScanner = useCallback(async () => {
-    if (!scannerRef.current) return;
-    try {
-      await scannerRef.current.stop();
-      await scannerRef.current.clear();
-    } catch {
-      // ignore cleanup failures
+  const requestCameraPermission = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } }
+    });
+    mediaStreamRef.current = stream;
+    return true;
+  }, []);
+
+  const fallbackToFrontCamera = useCallback(async () => {
+    stopAllMediaTracks();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "user" } }
+    });
+    mediaStreamRef.current = stream;
+    return true;
+  }, [stopAllMediaTracks]);
+
+  const startScanWithCamera = useCallback(async (Html5Qrcode, Html5QrcodeSupportedFormats, cameraId) => {
+    setPermissionState("starting");
+
+    // Ensure DOM element exists before creating scanner
+    const element = document.getElementById("qr-scanner");
+    if (!element) {
+      throw new Error("Scanner element not available");
     }
-    scannerRef.current = null;
+
+    const html5QrCode = new Html5Qrcode("qr-scanner", { verbose: false });
+    scannerRef.current = html5QrCode;
+
+    // If we have a media stream from explicit permission request, stop it
+    // html5-qrcode will create its own stream
+    stopAllMediaTracks();
+
+    await html5QrCode.start(
+      cameraId,
+      {
+        fps: 10,
+        qrbox: { width: 260, height: 260 },
+        aspectRatio: 1.0,
+        disableFlip: false,
+        showTorchButtonIfSupported: true,
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
+      },
+      async (decodedText) => {
+        if (hasAutoSubmittedRef.current) return;
+        hasAutoSubmittedRef.current = true;
+
+        const { recipient, amount, note, merchant } = normalizeScannedText(decodedText);
+        if (!recipient) {
+          setScanError("Scanned QR is not a valid Nano address or payment payload.");
+          hasAutoSubmittedRef.current = false;
+          return;
+        }
+
+        setForm((state) => ({
+          ...state,
+          recipient,
+          amount: amount || state.amount,
+          note: note || state.note,
+          merchant: merchant || state.merchant
+        }));
+        setStatus({ type: "success", message: "QR scanned. Processing payment...", txHash: null });
+        await stopScanner();
+
+        try {
+          setLoading(true);
+          const result = await sendTxRef.current({
+            recipient,
+            amount: parseFloat(amount) || 0,
+            currency: "XNO",
+            merchant: merchant || "",
+            destination: recipient,
+            note: note || "",
+            reference: "",
+            metadata: {}
+          });
+
+          const hasSuccessStatus = result?.status === "success";
+          const hasTxHash = Boolean(result?.tx_hash);
+          const isFailureStatus = result?.status === "failed";
+
+          if (hasTxHash && (hasSuccessStatus || !isFailureStatus)) {
+            const txIdFromResponse = result?.transaction?.id || result?.transaction_id;
+            if (txIdFromResponse) {
+              setTxId(txIdFromResponse);
+            }
+
+            setStatus({
+              type: "success",
+              message: "Payment submitted successfully",
+              txHash: result.tx_hash
+            });
+            setForm({ recipient: "", amount: "", currency: "XNO", merchant: "", destination: "", note: "", reference: "" });
+            clearSavedPaymentContext();
+            setPaymentContext(null);
+            onClearContextRef.current?.();
+
+            if (txIdFromResponse) {
+              setStatus({
+                type: "pending",
+                message: "Confirming on network (0s)...",
+                txHash: result.tx_hash
+              });
+            }
+          } else if (result?.status === "pending") {
+            setStatus({
+              type: "pending",
+              message: result?.message || "Payment processing... Check back in a moment.",
+              txHash: result?.tx_hash || null
+            });
+          } else {
+            setStatus({
+              type: "error",
+              message: result?.error || "Payment failed. Please try again.",
+              txHash: null
+            });
+            hasAutoSubmittedRef.current = false;
+          }
+        } catch (err) {
+          const rawMessage = String(err?.message || "Payment failed. Please try again.");
+          const needsFunding = /fund|receive|activate|activated|wallet/i.test(rawMessage);
+          setStatus({
+            type: needsFunding ? "action_required" : "error",
+            message: rawMessage,
+            txHash: null
+          });
+          hasAutoSubmittedRef.current = false;
+        } finally {
+          setLoading(false);
+        }
+      },
+      () => {}
+    );
+
+    setScanActive(true);
+    setPermissionState("granted");
+    setScannerLoading(false);
+  }, [stopAllMediaTracks]);
+
+  const stopScanner = useCallback(async () => {
+    await destroyScanner();
     setScanActive(false);
     setPermissionState("idle");
     setScannerLoading(false);
-  }, []);
+  }, [destroyScanner]);
 
   const openScanner = useCallback(async () => {
     if (scanActive || scannerRef.current) return;
+    // Prevent mounting scanner if not on secure context
+    if (typeof window !== "undefined" && window.location && !window.location.protocol.includes("https") && !window.location.hostname.includes("localhost") && !window.location.hostname.includes("127.0.0.1")) {
+      setScanError("Camera access requires HTTPS. Please use a secure connection.");
+      return;
+    }
     setScanError("");
     setScannerLoading(true);
     setPermissionState("requesting");
     hasAutoSubmittedRef.current = false;
 
     try {
+      // STEP 1: Dynamic import QR library
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
 
-      const cameras = await Html5Qrcode.getCameras();
-      if (!cameras || cameras.length === 0) {
-        throw new Error("No camera devices found");
+      // STEP 2: Explicit permission request (getUserMedia) BEFORE anything else
+      // This ensures the browser permission prompt fires from user gesture context
+      await requestCameraPermission();
+
+      // STEP 3: Enumerate devices after permission is granted
+      let cameras;
+      try {
+        cameras = await Html5Qrcode.getCameras();
+      } catch (err) {
+        throw new Error(`Failed to detect cameras: ${err.message}`);
       }
 
-      const rearCamera = cameras.find((c) => /back|rear|environment|camera\d|back-facing/i.test(c.label)) || cameras[cameras.length - 1];
+      if (!cameras || cameras.length === 0) {
+        throw new Error("NoCameras");
+      }
 
-      const html5QrCode = new Html5Qrcode("qr-scanner", { verbose: false });
-      scannerRef.current = html5QrCode;
-
-      const currentSendTx = sendTransaction;
-      const currentOnClearContext = onClearContext;
-
-      await html5QrCode.start(
-        rearCamera.id,
-        {
-          fps: 10,
-          qrbox: { width: 260, height: 260 },
-          aspectRatio: 1.0,
-          showTorchButtonIfSupported: true,
-          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
-        },
-        async (decodedText) => {
-          if (hasAutoSubmittedRef.current) return;
-          hasAutoSubmittedRef.current = true;
-
-          const { recipient, amount, note, merchant } = normalizeScannedText(decodedText);
-          if (!recipient) {
-            setScanError("Scanned QR is not a valid Nano address or payment payload.");
-            hasAutoSubmittedRef.current = false;
-            return;
-          }
-
-          setForm((state) => ({
-            ...state,
-            recipient,
-            amount: amount || state.amount,
-            note: note || state.note,
-            merchant: merchant || state.merchant
-          }));
-          setStatus({ type: "success", message: "QR scanned. Processing payment...", txHash: null });
-          await stopScanner();
-
-          try {
-            setLoading(true);
-            const result = await sendTxRef.current({
-              recipient,
-              amount: parseFloat(amount) || 0,
-              currency: "XNO",
-              merchant: merchant || "",
-              destination: recipient,
-              note: note || "",
-              reference: "",
-              metadata: {}
-            });
-
-            const hasSuccessStatus = result?.status === "success";
-            const hasTxHash = Boolean(result?.tx_hash);
-            const isFailureStatus = result?.status === "failed";
-
-            if (hasTxHash && (hasSuccessStatus || !isFailureStatus)) {
-              const txIdFromResponse = result?.transaction?.id || result?.transaction_id;
-              if (txIdFromResponse) {
-                setTxId(txIdFromResponse);
-              }
-
-              setStatus({
-                type: "success",
-                message: "Payment submitted successfully",
-                txHash: result.tx_hash
-              });
-              setForm({ recipient: "", amount: "", currency: "XNO", merchant: "", destination: "", note: "", reference: "" });
-              clearSavedPaymentContext();
-              setPaymentContext(null);
-              onClearContextRef.current?.();
-
-              if (txIdFromResponse) {
-                setStatus({
-                  type: "pending",
-                  message: "Confirming on network (0s)...",
-                  txHash: result.tx_hash
-                });
-              }
-            } else if (result?.status === "pending") {
-              setStatus({
-                type: "pending",
-                message: result?.message || "Payment processing... Check back in a moment.",
-                txHash: result?.tx_hash || null
-              });
-            } else {
-              setStatus({
-                type: "error",
-                message: result?.error || "Payment failed. Please try again.",
-                txHash: null
-              });
-              hasAutoSubmittedRef.current = false;
-            }
-          } catch (err) {
-            const rawMessage = String(err?.message || "Payment failed. Please try again.");
-            const needsFunding = /fund|receive|activate|activated|wallet/i.test(rawMessage);
-            setStatus({
-              type: needsFunding ? "action_required" : "error",
-              message: rawMessage,
-              txHash: null
-            });
-            hasAutoSubmittedRef.current = false;
-          } finally {
-            setLoading(false);
-          }
-        },
-        () => {}
+      // STEP 4: Select camera (rear/environment preferred)
+      const rearCamera = cameras.find(
+        (c) => /back|rear|environment|camera\d|back-facing/i.test(c.label)
       );
 
-      setScanActive(true);
-      setPermissionState("granted");
-      setScannerLoading(false);
+      try {
+        // STEP 5: Start scanner with rear camera
+        if (rearCamera) {
+          await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, rearCamera.id);
+        } else {
+          // No rear camera found, use last camera available
+          const fallbackCam = cameras[cameras.length - 1];
+          await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, fallbackCam.id);
+        }
+      } catch (err) {
+        // STEP 6: Fallback: if rear camera fails, try front camera
+        if (cameras.length > 1 && rearCamera) {
+          const frontCamera = cameras.find(c => !/back|rear|environment/i.test(c.label)) || cameras[0];
+          try {
+            await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, frontCamera.id);
+          } catch (fallbackErr) {
+            throw new Error(`All cameras failed: ${fallbackErr.message}`);
+          }
+        } else {
+          throw err;
+        }
+      }
     } catch (err) {
-      const reason = err?.name === "NotAllowedError" || err?.name === "SecurityError"
-        ? "Camera permission denied. Please allow access to scan QR codes."
-        : err?.name === "NotFoundError"
-        ? "No camera device found."
-        : String(err?.message || "Unable to access camera.");
+      const errName = err?.name || "";
+      const errMsg = String(err?.message || "");
+
+      let reason;
+      if (errName === "NotAllowedError" || errName === "PermissionDeniedError" || errMsg.includes("Permission denied") || errMsg.includes("permission")) {
+        reason = "Camera permission denied. Please allow camera access in your browser settings and try again.";
+        setPermissionState("denied");
+      } else if (errName === "NotFoundError" || errMsg === "NoCameras" || errMsg.includes("No camera")) {
+        reason = "No camera found on this device. Please use a device with a camera.";
+      } else if (errName === "NotReadableError" || errMsg.includes("already in use")) {
+        reason = "Camera is already in use by another application. Please close other apps using the camera.";
+      } else if (errName === "OverconstrainedError" || errMsg.includes("constraint")) {
+        reason = "Camera does not support the required resolution. Please try a different camera.";
+      } else if (errName === "SecurityError" || errMsg.includes("secure context") || errMsg.includes("HTTPS")) {
+        reason = "Camera access requires a secure connection (HTTPS).";
+      } else if (errMsg.includes("NotAllowedError") || errMsg.includes("The request is not allowed")) {
+        reason = "Camera permission was denied. Please reset camera permissions in your browser settings.";
+        setPermissionState("denied");
+      } else {
+        reason = errMsg || "Unable to access camera. Please try again.";
+      }
 
       setScanError(reason);
       setScanActive(false);
       setScannerLoading(false);
-      setPermissionState("denied");
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(() => {});
-        scannerRef.current = null;
-      }
+      await destroyScanner();
     }
-  }, [scanActive, stopScanner, sendTransaction, onClearContext]);
+  }, [scanActive, requestCameraPermission, startScanWithCamera, destroyScanner]);
 
   const handleClearPaymentContext = useCallback(() => {
     setPaymentContext(null);
@@ -774,23 +868,21 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
             <span className="muted">Use your camera to autofill and preserve payment context.</span>
           </div>
 
-          {scanActive && (
-            <div className="qr-scanner-container active">
-              {scannerLoading && (
-                <div className="scanner-loading-overlay">
-                  <div className="loading-spinner"></div>
-                  <span>Initializing camera...</span>
-                </div>
-              )}
-              <div id="qr-scanner" />
-              <div className="scanner-caption">
-                {permissionState === "requesting" ? "Requesting camera permission..." : "Point your camera at a QR code to scan."}
+          <div className="qr-scanner-container" style={{ display: scanActive ? '' : 'none' }}>
+            {scannerLoading && (
+              <div className="scanner-loading-overlay">
+                <div className="loading-spinner"></div>
+                <span>Initializing camera...</span>
               </div>
-              <button type="button" className="ghost-button" onClick={stopScanner}>
-                Stop scanner
-              </button>
+            )}
+            <div id="qr-scanner" ref={scannerContainerRef} />
+            <div className="scanner-caption">
+              {permissionState === "requesting" ? "Requesting camera permission..." : permissionState === "starting" ? "Starting camera..." : "Point your camera at a QR code to scan."}
             </div>
-          )}
+            <button type="button" className="ghost-button" onClick={stopScanner}>
+              Stop scanner
+            </button>
+          </div>
 
           {scanError && (
             <div className="status error">

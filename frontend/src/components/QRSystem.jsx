@@ -16,6 +16,7 @@ export function useQRScanner({ onScan, onError }) {
   const [cameraError, setCameraError] = useState(null);
   const [isPermissionDenied, setIsPermissionDenied] = useState(false);
   const scannerRef = useRef(null);
+  const mediaStreamRef = useRef(null);
   const lastScanTimeRef = useRef(0);
   const lastScanTextRef = useRef(null);
   const permissionTimeoutRef = useRef(null);
@@ -24,6 +25,13 @@ export function useQRScanner({ onScan, onError }) {
   const onErrorRef = useRef(onError);
   onScanRef.current = onScan;
   onErrorRef.current = onError;
+
+  const stopAllMediaTracks = useCallback(() => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+  }, []);
 
   const validateNanoAddress = useCallback((text) => {
     const cleaned = String(text || "").trim().replace(/^nano:/i, "").split("?")[0];
@@ -184,11 +192,24 @@ export function useQRScanner({ onScan, onError }) {
     });
   }, [parsePaymentPayload]);
 
+  const requestCameraPermission = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } }
+    });
+    mediaStreamRef.current = stream;
+    return true;
+  }, []);
+
   const startScanning = useCallback(async (elementId) => {
     if (scannerRef.current) return;
 
+    // Confirm element exists in DOM before proceeding
+    const element = document.getElementById(elementId);
+    if (!element) {
+      throw new Error("Scanner element not found in DOM. Please try again.");
+    }
+
     try {
-      // Clear any pending timeouts
       if (permissionTimeoutRef.current) {
         clearTimeout(permissionTimeoutRef.current);
       }
@@ -198,15 +219,25 @@ export function useQRScanner({ onScan, onError }) {
 
       setCameraError(null);
       setIsPermissionDenied(false);
-      const html5QrCode = new Html5Qrcode(elementId, { verbose: false });
-      scannerRef.current = html5QrCode;
 
-      // Get cameras with timeout
+      // STEP 1: Explicit permission request BEFORE scanner init
+      // This ensures browser permission prompt fires from user gesture
+      try {
+        await requestCameraPermission();
+      } catch (permErr) {
+        const permMsg = String(permErr?.message || "");
+        if (permErr?.name === "NotAllowedError" || permErr?.name === "PermissionDeniedError" || permMsg.includes("permission")) {
+          throw Object.assign(new Error("Camera permission denied"), { code: "PERMISSION_DENIED" });
+        }
+        throw permErr;
+      }
+
+      // STEP 2: Enumerate cameras
       let cameras = [];
       try {
         cameras = await Promise.race([
           Html5Qrcode.getCameras(),
-          new Promise((_, reject) => 
+          new Promise((_, reject) =>
             setTimeout(() => reject(new Error("Camera detection timeout")), CAMERA_PERMISSION_TIMEOUT)
           )
         ]);
@@ -215,16 +246,25 @@ export function useQRScanner({ onScan, onError }) {
       }
 
       if (!cameras || cameras.length === 0) {
-        throw new Error("No cameras found on this device");
+        throw Object.assign(new Error("No camera found on this device"), { code: "NO_CAMERAS" });
       }
 
-      // Prefer rear camera for mobile
-      const rearCamera = cameras.find((c) => /back|rear|environment|camera\d|back-facing/i.test(c.label)) || cameras[cameras.length - 1];
+      // STEP 3: Select camera (rear/environment preferred)
+      const rearCamera = cameras.find(
+        (c) => /back|rear|environment|camera\d|back-facing/i.test(c.label)
+      );
+      const selectedCamera = rearCamera || cameras[cameras.length - 1];
 
-      // Start camera with better config
+      // STEP 4: Stop our temporary media stream (html5-qrcode creates its own)
+      stopAllMediaTracks();
+
+      // STEP 5: Initialize scanner with selected camera
+      const html5QrCode = new Html5Qrcode(elementId, { verbose: false });
+      scannerRef.current = html5QrCode;
+
       try {
         await html5QrCode.start(
-          rearCamera.id,
+          selectedCamera.id,
           {
             fps: 10,
             qrbox: { width: 280, height: 280 },
@@ -234,12 +274,31 @@ export function useQRScanner({ onScan, onError }) {
             formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
           },
           handleScanSuccess,
-          (errorMessage) => {
-            // Ignore frame error spam
-          }
+          () => {}
         );
-      } catch (err) {
-        throw new Error(`Failed to start camera: ${err.message}`);
+      } catch (startErr) {
+        // STEP 6: Fallback to front camera if rear fails and multiple cameras exist
+        if (cameras.length > 1 && rearCamera) {
+          const frontCamera = cameras.find(c => !/back|rear|environment/i.test(c.label)) || cameras[0];
+          try {
+            await html5QrCode.start(
+              frontCamera.id,
+              {
+                fps: 10,
+                qrbox: { width: 280, height: 280 },
+                aspectRatio: 1.0,
+                disableFlip: false,
+                formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
+              },
+              handleScanSuccess,
+              () => {}
+            );
+          } catch (fallbackErr) {
+            throw new Error(`All cameras failed: ${fallbackErr.message}`);
+          }
+        } else {
+          throw new Error(`Failed to start camera: ${startErr.message}`);
+        }
       }
 
       setIsScanning(true);
@@ -249,54 +308,52 @@ export function useQRScanner({ onScan, onError }) {
     } catch (err) {
       const errorName = err.name || "";
       const errorMessage = err.message || "";
-      const isPermissionError = errorName === "NotAllowedError" || 
-                                 errorName === "SecurityError" || 
-                                 errorName === "PermissionDeniedError" ||
-                                 errorMessage.toLowerCase().includes("permission");
+      const errorCode = err.code || "";
 
-      if (isPermissionError) {
+      let mappedError;
+      if (errorCode === "PERMISSION_DENIED" || errorName === "NotAllowedError" || errorName === "PermissionDeniedError" || errorMessage.toLowerCase().includes("permission")) {
+        mappedError = "Camera permission denied. Please allow camera access in your browser settings and try again.";
         setHasPermission(false);
         setIsPermissionDenied(true);
-        setCameraError("Camera permission denied. Please allow camera access in your browser settings and try again.");
-        onError?.({ 
-          message: "Camera permission denied. Please allow camera access in your browser settings.", 
-          error: err 
-        });
-      } else if (err.message === "No cameras found on this device" || errorName === "NotFoundError") {
+      } else if (errorCode === "NO_CAMERAS" || errorName === "NotFoundError" || errorMessage.includes("No camera")) {
+        mappedError = "No camera found on this device. Please use a device with a camera.";
         setHasPermission(false);
-        setCameraError("No camera found on this device. Please use a device with a camera.");
-        onError?.({ 
-          message: "No camera found on this device.", 
-          error: err 
-        });
+      } else if (errorName === "NotReadableError" || errorMessage.includes("already in use")) {
+        mappedError = "Camera is already in use by another application. Please close other apps using the camera.";
+        setHasPermission(false);
+      } else if (errorName === "OverconstrainedError" || errorMessage.includes("constraint")) {
+        mappedError = "Camera does not support the required resolution. Please try a different camera.";
+        setHasPermission(false);
+      } else if (errorName === "SecurityError") {
+        mappedError = "Camera access requires a secure connection (HTTPS).";
+        setHasPermission(false);
+      } else if (errorMessage.includes("Scanner element not found")) {
+        mappedError = errorMessage;
       } else {
+        mappedError = errorMessage || "Unable to access camera. Please try again.";
         setHasPermission(false);
-        setCameraError(errorMessage || "Failed to start camera. Please try again.");
-        onError?.({ 
-          message: errorMessage || "Failed to start camera. Please try again.", 
-          error: err 
-        });
       }
-      
+
+      setCameraError(mappedError);
+      onErrorRef.current?.({ message: mappedError, error: err });
       scannerRef.current = null;
       setIsScanning(false);
     }
-  }, [handleScanSuccess, onError]);
+  }, [handleScanSuccess, requestCameraPermission, stopAllMediaTracks]);
 
   const stopScanning = useCallback(async () => {
     if (scannerRef.current) {
       try {
-        // Properly stop the scanner and clean up resources
         await scannerRef.current.stop();
         await scannerRef.current.clear();
-        scannerRef.current = null;
       } catch (err) {
         console.log("Scanner cleanup error:", err);
-        scannerRef.current = null;
       }
+      scannerRef.current = null;
     }
+    stopAllMediaTracks();
     setIsScanning(false);
-  }, []);
+  }, [stopAllMediaTracks]);
 
   const toggleTorch = useCallback(async () => {
     if (scannerRef.current) {
@@ -315,11 +372,11 @@ export function useQRScanner({ onScan, onError }) {
   const requestPermissionRetry = useCallback(async (elementId) => {
     setIsPermissionDenied(false);
     await stopScanning();
-    // Delay before retrying to avoid rapid permission requests
+    stopAllMediaTracks();
     cameraRestartRef.current = setTimeout(() => {
       startScanning(elementId);
     }, CAMERA_RESTART_DELAY);
-  }, [startScanning, stopScanning]);
+  }, [startScanning, stopScanning, stopAllMediaTracks]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -333,8 +390,9 @@ export function useQRScanner({ onScan, onError }) {
       if (scannerRef.current) {
         scannerRef.current.stop().catch(() => {});
       }
+      stopAllMediaTracks();
     };
-  }, []);
+  }, [stopAllMediaTracks]);
 
   return {
     isScanning,
@@ -601,14 +659,14 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
             <button className="primary-button scan-btn" onClick={handleStartScan}>
               Scan QR Code
             </button>
-          ) : (
-            <div className="scanner-view">
-              <div id="qr-reader-container" className="qr-reader"></div>
-              <button className="ghost-button" onClick={handleStopScan}>
-                Cancel
-              </button>
-            </div>
-          )}
+          ) : null}
+          {/* Always render container in DOM for reliable scanner init */}
+          <div className="scanner-view" style={{ display: isScanning ? '' : 'none' }}>
+            <div id="qr-reader-container" className="qr-reader"></div>
+            <button className="ghost-button" onClick={handleStopScan}>
+              Cancel
+            </button>
+          </div>
 
           {error && (
             <div className="qr-error">
