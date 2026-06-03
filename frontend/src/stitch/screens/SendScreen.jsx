@@ -519,10 +519,6 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
     const html5QrCode = new Html5Qrcode("qr-scanner", { verbose: false });
     scannerRef.current = html5QrCode;
 
-    // If we have a media stream from explicit permission request, stop it
-    // html5-qrcode will create its own stream
-    stopAllMediaTracks();
-
     await html5QrCode.start(
       cameraId,
       {
@@ -624,10 +620,9 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       () => {}
     );
 
-    setScanActive(true);
     setPermissionState("granted");
     setScannerLoading(false);
-  }, [stopAllMediaTracks]);
+  }, []);
 
   const stopScanner = useCallback(async () => {
     await destroyScanner();
@@ -643,20 +638,20 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       setScanError("Camera access requires HTTPS. Please use a secure connection.");
       return;
     }
+
+    // MUST set scanActive BEFORE any async work so the container is visible
+    // when html5-qrcode creates the video element (autoplay requires visible parent)
+    setScanActive(true);
     setScanError("");
     setScannerLoading(true);
     setPermissionState("requesting");
     hasAutoSubmittedRef.current = false;
 
     try {
-      // STEP 1: Dynamic import QR library
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
 
-      // STEP 2: Explicit permission request (getUserMedia) BEFORE anything else
-      // This ensures the browser permission prompt fires from user gesture context
-      await requestCameraPermission();
-
-      // STEP 3: Enumerate devices after permission is granted
+      // Let html5-qrcode handle its own getUserMedia internally;
+      // a separate permission pre-flight causes double getUserMedia contention on mobile.
       let cameras;
       try {
         cameras = await Html5Qrcode.getCameras();
@@ -668,22 +663,18 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
         throw new Error("NoCameras");
       }
 
-      // STEP 4: Select camera (rear/environment preferred)
       const rearCamera = cameras.find(
         (c) => /back|rear|environment|camera\d|back-facing/i.test(c.label)
       );
 
       try {
-        // STEP 5: Start scanner with rear camera
         if (rearCamera) {
           await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, rearCamera.id);
         } else {
-          // No rear camera found, use last camera available
           const fallbackCam = cameras[cameras.length - 1];
           await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, fallbackCam.id);
         }
       } catch (err) {
-        // STEP 6: Fallback: if rear camera fails, try front camera
         if (cameras.length > 1 && rearCamera) {
           const frontCamera = cameras.find(c => !/back|rear|environment/i.test(c.label)) || cameras[0];
           try {

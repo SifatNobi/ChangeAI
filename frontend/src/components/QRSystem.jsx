@@ -220,19 +220,8 @@ export function useQRScanner({ onScan, onError }) {
       setCameraError(null);
       setIsPermissionDenied(false);
 
-      // STEP 1: Explicit permission request BEFORE scanner init
-      // This ensures browser permission prompt fires from user gesture
-      try {
-        await requestCameraPermission();
-      } catch (permErr) {
-        const permMsg = String(permErr?.message || "");
-        if (permErr?.name === "NotAllowedError" || permErr?.name === "PermissionDeniedError" || permMsg.includes("permission")) {
-          throw Object.assign(new Error("Camera permission denied"), { code: "PERMISSION_DENIED" });
-        }
-        throw permErr;
-      }
-
-      // STEP 2: Enumerate cameras
+      // Let html5-qrcode handle its own getUserMedia internally;
+      // a separate permission pre-flight causes double getUserMedia contention on mobile.
       let cameras = [];
       try {
         cameras = await Promise.race([
@@ -255,10 +244,7 @@ export function useQRScanner({ onScan, onError }) {
       );
       const selectedCamera = rearCamera || cameras[cameras.length - 1];
 
-      // STEP 4: Stop our temporary media stream (html5-qrcode creates its own)
-      stopAllMediaTracks();
-
-      // STEP 5: Initialize scanner with selected camera
+      // Initialize scanner with selected camera
       const html5QrCode = new Html5Qrcode(elementId, { verbose: false });
       scannerRef.current = html5QrCode;
 
@@ -339,7 +325,7 @@ export function useQRScanner({ onScan, onError }) {
       scannerRef.current = null;
       setIsScanning(false);
     }
-  }, [handleScanSuccess, requestCameraPermission, stopAllMediaTracks]);
+  }, [handleScanSuccess]);
 
   const stopScanning = useCallback(async () => {
     if (scannerRef.current) {
