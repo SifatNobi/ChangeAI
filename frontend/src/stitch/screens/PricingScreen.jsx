@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { FINA_AI_IMAGE, COMPANY_LOGO, COMPANY_NAME } from "../../constants/branding";
-import { apiRequest, getToken, activateFreeTrial } from "../../api";
+import { apiRequest, getToken, activateFreeTrial, getCurrentSubscription } from "../../api";
 import { GoalProgress } from "../../components/RealtimeDashboard";
 import "./PricingScreen.css";
 
@@ -321,17 +321,29 @@ export default function PricingScreen({ currentPlan = "free_trial", onSelectPlan
         const result = await activateFreeTrial(token);
         if (result?.success) {
           alert("Free Trial activated! Complete your first transaction within 24 hours to keep your 7-day trial benefits.");
-          setCurrentSubscription(prev => ({
-            ...prev,
-            plan: "free_trial",
-            status: "active",
-            freeTrial: {
-              activated: true,
-              clickedActivation: true,
-              firstTransactionCompleted: false,
-              expiresAt: result.trial?.expiresAt
-            }
-          }));
+          
+          // Wait a brief moment for backend to fully process, then reload subscription data
+          // This ensures we get the fresh state from the server
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Force a fresh fetch of subscription data (bypasses any stale cache)
+          const freshSubscription = await getCurrentSubscription(token);
+          if (freshSubscription?.subscription) {
+            setCurrentSubscription(freshSubscription.subscription);
+          } else {
+            // Fallback to local state if fetch fails
+            setCurrentSubscription(prev => ({
+              ...prev,
+              plan: "free_trial",
+              status: "active",
+              freeTrial: {
+                activated: true,
+                clickedActivation: true,
+                firstTransactionCompleted: false,
+                expiresAt: result.trial?.expiresAt
+              }
+            }));
+          }
         } else {
           alert(result?.error || "Failed to activate Free Trial");
         }

@@ -25,6 +25,37 @@ export function clearCache(key) {
   }
 }
 
+// Invalidate specific cache patterns (e.g., all subscription caches)
+export function clearCachePattern(pattern) {
+  const keysToDelete = [];
+  cache.forEach((_, key) => {
+    if (key.includes(pattern)) {
+      keysToDelete.push(key);
+    }
+  });
+  keysToDelete.forEach(key => cache.delete(key));
+}
+
+// Invalidate subscription-related caches
+export function invalidateSubscriptionCache(token) {
+  // Clear all subscription and user-related caches
+  const patterns = [
+    '/subscription/current',
+    '/subscription/usage',
+    '/user/profile',
+    '/merchant-subscription/'
+  ];
+  patterns.forEach(pattern => {
+    clearCachePattern(pattern);
+  });
+}
+
+// Invalidate auth-related caches (for login/logout)
+export function invalidateAuthCache(token) {
+  clearCachePattern('/user/profile');
+  clearCachePattern('/subscription/');
+}
+
 // Invalidate cache when auth token changes
 export function updateAuthToken(token) {
   const newHash = token ? token.slice(-20) : "";

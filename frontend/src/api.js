@@ -1,4 +1,4 @@
-import { getCachedData, setCachedData, withRetry, updateAuthToken } from "./utils/apiCache";
+import { getCachedData, setCachedData, withRetry, updateAuthToken, invalidateSubscriptionCache, invalidateAuthCache, clearCachePattern } from "./utils/apiCache";
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "https://changeaipay.onrender.com";
@@ -164,32 +164,60 @@ export async function getAIHistory(token) {
 
 // ===== Billing APIs =====
 export async function verifyPayment(token, { paymentSessionId, transactionHash }) {
-  return apiRequest("/billing/verify-payment", {
+  const result = await apiRequest("/billing/verify-payment", {
     method: "POST",
     token,
     body: { paymentSessionId, transactionHash }
   });
+  
+  // Invalidate subscription cache after successful payment verification
+  if (result?.success) {
+    invalidateSubscriptionCache(token);
+  }
+  
+  return result;
 }
 
 export async function cancelPaymentSession(token) {
-  return apiRequest("/billing/cancel-payment", {
+  const result = await apiRequest("/billing/cancel-payment", {
     method: "POST",
     token
   });
+  
+  // Invalidate subscription cache after cancelling payment
+  if (result?.success) {
+    invalidateSubscriptionCache(token);
+  }
+  
+  return result;
 }
 
 export async function activateFreeTrial(token) {
-  return apiRequest("/billing/activate-free-trial", {
+  const result = await apiRequest("/billing/activate-free-trial", {
     method: "POST",
     token
   });
+  
+  // Invalidate subscription cache after successful activation
+  if (result?.success) {
+    invalidateSubscriptionCache(token);
+  }
+  
+  return result;
 }
 
 export async function completeFirstTransaction(token) {
-  return apiRequest("/billing/complete-first-transaction", {
+  const result = await apiRequest("/billing/complete-first-transaction", {
     method: "POST",
     token
   });
+  
+  // Invalidate subscription cache after completing first transaction
+  if (result?.success) {
+    invalidateSubscriptionCache(token);
+  }
+  
+  return result;
 }
 
 // ===== Waitlist APIs =====
