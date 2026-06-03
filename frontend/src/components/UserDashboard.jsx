@@ -136,6 +136,26 @@ const UserDashboard = React.memo(function UserDashboard({ profile, token, onNavi
     loadDashboardData();
   }, [loadDashboardData]);
 
+  // Refresh subscription when returning to dashboard (handles subscription state changes from other screens)
+  useEffect(() => {
+    const handleWindowFocus = async () => {
+      const token = localStorage.getItem("changeaipay_token");
+      if (token) {
+        try {
+          const sub = await getCurrentSubscription(token);
+          if (sub) {
+            setSubscription(sub);
+          }
+        } catch (err) {
+          console.error("Failed to refresh subscription on focus:", err);
+        }
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, []);
+
   useEffect(() => {
     saveGoals(goals);
   }, [goals]);
@@ -298,6 +318,7 @@ const UserDashboard = React.memo(function UserDashboard({ profile, token, onNavi
           <div className="sidebar-section subscription-section">
             <SubscriptionStatus 
               plan={subscription?.plan || "free_trial"}
+              status={subscription?.status}
               usage={usage}
               onUpgrade={() => onNavigate?.("/pricing")}
             />

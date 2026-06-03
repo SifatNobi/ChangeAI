@@ -778,7 +778,21 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
             <div className="preview-heading">Scanned Payment Preview</div>
             <div className="preview-row">
               <span>Merchant</span>
-              <strong>{paymentContext.merchant || "Unknown merchant"}</strong>
+              <strong>
+                {paymentContext.merchant ? (
+                  paymentContext.merchant
+                ) : paymentContext.merchantId ? (
+                  `Merchant ID: ${paymentContext.merchantId.substring(0, 16)}...`
+                ) : paymentContext.merchant_id ? (
+                  `Merchant ID: ${paymentContext.merchant_id.substring(0, 16)}...`
+                ) : (
+                  paymentContext.recipient || paymentContext.destination ? (
+                    `${paymentContext.recipient || paymentContext.destination}`.substring(0, 20) + "..."
+                  ) : (
+                    "Recipient address"
+                  )
+                )}
+              </strong>
             </div>
             <div className="preview-row">
               <span>Recipient</span>

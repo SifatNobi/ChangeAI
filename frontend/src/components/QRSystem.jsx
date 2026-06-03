@@ -79,6 +79,8 @@ export function useQRScanner({ onScan, onError }) {
       amount: null,
       currency: "XNO",
       merchant: "",
+      merchantId: "",
+      merchant_id: "",
       note: "",
       reference: "",
       metadata: {}
@@ -94,6 +96,7 @@ export function useQRScanner({ onScan, onError }) {
         payload.amount = jsonPayload.amount ?? jsonPayload.value ?? jsonPayload.total ?? null;
         payload.currency = jsonPayload.currency || jsonPayload.currency_code || jsonPayload.asset || payload.currency;
         payload.merchant = jsonPayload.merchant || jsonPayload.merchantName || jsonPayload.payee || jsonPayload.business || "";
+        payload.merchantId = jsonPayload.merchant_id || jsonPayload.merchantId || jsonPayload.merchant_id || "";
         payload.note = jsonPayload.note || jsonPayload.message || jsonPayload.description || "";
         payload.reference = jsonPayload.reference || jsonPayload.memo || jsonPayload.note || "";
         payload.metadata = jsonPayload.metadata || {};
@@ -118,12 +121,13 @@ export function useQRScanner({ onScan, onError }) {
         payload.amount = payload.amount ?? (params.get("amount") || params.get("value") || params.get("total"));
         payload.currency = params.get("currency") || params.get("asset") || payload.currency;
         payload.merchant = payload.merchant || params.get("merchant") || params.get("label") || params.get("payee") || "";
+        payload.merchantId = payload.merchantId || params.get("merchant_id") || params.get("merchantId") || params.get("merchant-id") || "";
         payload.note = payload.note || params.get("note") || params.get("message") || params.get("description") || "";
         payload.reference = payload.reference || params.get("reference") || params.get("memo") || "";
 
         const metadata = {};
         params.forEach((value, key) => {
-          if (!["address", "recipient", "wallet", "to", "destination", "amount", "value", "total", "currency", "asset", "merchant", "label", "payee", "note", "message", "description", "reference", "memo"].includes(key)) {
+          if (!["address", "recipient", "wallet", "to", "destination", "amount", "value", "total", "currency", "asset", "merchant", "label", "payee", "merchant_id", "merchantId", "merchant-id", "note", "message", "description", "reference", "memo"].includes(key)) {
             metadata[key] = value;
           }
         });
@@ -184,6 +188,7 @@ export function useQRScanner({ onScan, onError }) {
       amount: parsed.amount != null ? parseFloat(parsed.amount) : 0,
       currency: parsed.currency || "XNO",
       merchant: parsed.merchant,
+      merchantId: parsed.merchantId,
       note: parsed.note,
       reference: parsed.reference,
       metadata: parsed.metadata,
@@ -514,6 +519,7 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("XNO");
   const [merchant, setMerchant] = useState("");
+  const [merchantId, setMerchantId] = useState("");
   const [destination, setDestination] = useState("");
   const [note, setNote] = useState("");
   const [reference, setReference] = useState("");
@@ -545,6 +551,7 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
       setAmount(data.amount != null ? String(data.amount) : "");
       setCurrency(data.currency || "XNO");
       setMerchant(data.merchant || "");
+      setMerchantId(data.merchantId || "");
       setDestination(data.destination || data.recipient || "");
       setNote(data.note || "");
       setReference(data.reference || "");
@@ -557,6 +564,7 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
         amount: data.amount,
         currency: data.currency,
         merchant: data.merchant,
+        merchantId: data.merchantId,
         destination: data.destination,
         note: data.note,
         reference: data.reference,

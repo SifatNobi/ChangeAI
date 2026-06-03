@@ -431,7 +431,7 @@ export function GoalProgress({ goals = [], onEdit, onDelete }) {
   );
 }
 
-export function SubscriptionStatus({ plan, usage = {}, onUpgrade }) {
+export function SubscriptionStatus({ plan, status, usage = {}, onUpgrade }) {
   const planConfig = {
     free_trial: { name: "Free Trial", color: "#54c3ff" },
     edge: { name: "Edge", color: "#1e6be0" },
@@ -440,16 +440,28 @@ export function SubscriptionStatus({ plan, usage = {}, onUpgrade }) {
   };
 
   const config = planConfig[plan] || planConfig.free_trial;
+  
+  // Determine if this is an active paid plan or active trial
+  const isActivePlan = status === "active" && (plan !== "free_trial" || status === "active");
+  const isActiveFreeTrial = plan === "free_trial" && status === "active";
+  const isActiveSubscription = isActivePlan || isActiveFreeTrial;
 
   return (
     <div className="subscription-status">
       <div className="subscription-header">
         <span className="subscription-plan" style={{ color: config.color }}>
-          {config.name} Plan
+          {config.name} Plan {isActiveSubscription ? "(Active)" : ""}
         </span>
-        <button className="upgrade-button" onClick={onUpgrade}>
-          Upgrade
-        </button>
+        {!isActiveSubscription && (
+          <button className="upgrade-button" onClick={onUpgrade}>
+            Upgrade
+          </button>
+        )}
+        {isActiveSubscription && (
+          <span className="plan-status-badge" style={{ color: config.color }}>
+            Active
+          </span>
+        )}
       </div>
       {usage.fxLimit > 0 && (
         <div className="usage-bar">
