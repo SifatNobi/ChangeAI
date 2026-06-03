@@ -496,18 +496,21 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   const startScanWithCamera = useCallback(async (Html5Qrcode, Html5QrcodeSupportedFormats, cameraId) => {
     setPermissionState("starting");
 
-    // Ensure DOM element exists before creating scanner
-    const element = document.getElementById("qr-scanner");
+    const element = scannerContainerRef.current || document.getElementById("qr-scanner");
     if (!element) {
-      throw new Error("Scanner element not available");
+      throw new Error("Scanner element not mounted yet. Please try again.");
     }
 
     const html5QrCode = new Html5Qrcode("qr-scanner", { verbose: false });
     scannerRef.current = html5QrCode;
 
+    const cameraSource = typeof cameraId === "string"
+      ? { deviceId: { exact: cameraId } }
+      : cameraId;
+
     try {
       await html5QrCode.start(
-      cameraId,
+      cameraSource,
       {
         fps: 10,
         qrbox: { width: 260, height: 260 },
@@ -631,11 +634,18 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       return;
     }
 
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+      setScanError("Camera API is not available in this browser.");
+      openingRef.current = false;
+      return;
+    }
+
     setScanActive(true);
     setScanError("");
     setScannerLoading(true);
     setPermissionState("requesting");
     hasAutoSubmittedRef.current = false;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
 
     try {
       // STEP 1: Detect if any camera hardware exists BEFORE anything else
@@ -657,14 +667,14 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       mediaStreamRef.current = permissionStream;
       setPermissionState("granted");
 
-      // STEP 3 + 4: Import library, enumerate cameras (labels now available)
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
 
-      let cameras;
+      let cameras = [];
       try {
         cameras = await Html5Qrcode.getCameras();
       } catch (err) {
-        throw new Error(`Failed to detect cameras: ${err.message}`);
+        console.warn("Unable to enumerate cameras after permission:", err);
+        cameras = [];
       }
 
       if (!cameras || cameras.length === 0) {
@@ -678,19 +688,20 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       const rearCamera = cameras.find(
         (c) => /back|rear|environment|camera\d|back-facing/i.test(c.label)
       );
+      const fallbackCamera = cameras.find(c => !/back|rear|environment/i.test(c.label)) || cameras[cameras.length - 1];
+      const cameraToUse = rearCamera || fallbackCamera;
 
       try {
-        if (rearCamera) {
-          await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, rearCamera.id);
+        if (cameraToUse && cameraToUse.id) {
+          await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, cameraToUse.id);
         } else {
-          const fallbackCam = cameras[cameras.length - 1];
-          await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, fallbackCam.id);
+          await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, { facingMode: "environment" });
         }
       } catch (err) {
         if (cameras.length > 1 && rearCamera) {
-          const frontCamera = cameras.find(c => !/back|rear|environment/i.test(c.label)) || cameras[0];
+          const frontCamera = fallbackCamera || cameras[0];
           try {
-            await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, frontCamera.id);
+            await startScanWithCamera(Html5Qrcode, Html5QrcodeSupportedFormats, frontCamera.id || { facingMode: "user" });
           } catch (fallbackErr) {
             throw new Error(`All cameras failed: ${fallbackErr.message}`);
           }
@@ -724,6 +735,7 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
         reason = errMsg || `Camera error: "${errName}"${errCode ? ` (code: ${errCode})` : ""}`;
       }
 
+      console.warn("SendScreen QR scanner startup failed:", err);
       setScanError(reason);
       setScanActive(false);
       setScannerLoading(false);

@@ -450,14 +450,29 @@ async function openScanner() {
     setScanError("QR scanner library is unavailable.");
     return;
   }
+  if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+    setScanError("Camera API is not available in this browser.");
+    return;
+  }
 
   setScanError("");
   ui.qrScannerContainer.style.display = "block";
 
+  let permissionStream = null;
   try {
+    permissionStream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+    const cameras = await window.Html5Qrcode.getCameras().catch((err) => {
+      console.warn("QR scanner camera detection failed:", err);
+      return [];
+    });
+
+    const selectedCamera = (cameras || []).find((c) => /back|rear|environment|camera\d|back-facing/i.test(c.label)) || cameras?.[0];
+    const cameraSource = selectedCamera?.id ? selectedCamera.id : { facingMode: "environment" };
+
     appState.scanner = new window.Html5Qrcode("qr-scanner");
     await appState.scanner.start(
-      { facingMode: "environment" },
+      cameraSource,
       { fps: 10, qrbox: { width: 260, height: 260 }, rememberLastUsedCamera: true, showTorchButtonIfSupported: true },
       (decodedText) => {
         const recipient = normalizeScannedText(decodedText);
@@ -472,8 +487,13 @@ async function openScanner() {
       () => {}
     );
   } catch (error) {
+    console.warn("QR scanner startup error:", error);
     setScanError(String(error?.message || "Could not start QR scanner."));
     await stopScanner();
+  } finally {
+    if (permissionStream) {
+      permissionStream.getTracks().forEach((track) => track.stop());
+    }
   }
 }
 
