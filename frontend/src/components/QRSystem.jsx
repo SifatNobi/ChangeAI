@@ -17,6 +17,7 @@ export function useQRScanner({ onScan, onError }) {
   const [isPermissionDenied, setIsPermissionDenied] = useState(false);
   const scannerRef = useRef(null);
   const mediaStreamRef = useRef(null);
+  const openingRef = useRef(false);
   const lastScanTimeRef = useRef(0);
   const lastScanTextRef = useRef(null);
   const permissionTimeoutRef = useRef(null);
@@ -193,10 +194,12 @@ export function useQRScanner({ onScan, onError }) {
   }, [parsePaymentPayload]);
 
   const startScanning = useCallback(async (elementId) => {
-    if (scannerRef.current) return;
+    if (scannerRef.current || openingRef.current) return;
+    openingRef.current = true;
 
     const element = document.getElementById(elementId);
     if (!element) {
+      openingRef.current = false;
       throw new Error("Scanner element not found in DOM. Please try again.");
     }
 
@@ -224,9 +227,9 @@ export function useQRScanner({ onScan, onError }) {
       }
 
       // STEP 2: Trigger browser permission prompt while user gesture is active
-      const permissionStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } }
-      });
+      // Use video:true (no facingMode) to avoid OverconstrainedError on desktops
+      // with a single front-facing camera that has no "environment" facing
+      const permissionStream = await navigator.mediaDevices.getUserMedia({ video: true });
       mediaStreamRef.current = permissionStream;
 
       // Enumerate cameras (labels now available since we have permission)
@@ -332,7 +335,7 @@ export function useQRScanner({ onScan, onError }) {
       } else if (errorMessage.includes("Scanner element not found")) {
         mappedError = errorMessage;
       } else {
-        mappedError = errorMessage || "Unable to access camera. Please try again.";
+        mappedError = errorMessage || `Camera error: "${errorName}"${errorCode ? ` (code: ${errorCode})` : ""}`;
         setHasPermission(false);
       }
 
@@ -340,6 +343,8 @@ export function useQRScanner({ onScan, onError }) {
       onErrorRef.current?.({ message: mappedError, error: err });
       scannerRef.current = null;
       setIsScanning(false);
+    } finally {
+      openingRef.current = false;
     }
   }, [handleScanSuccess, stopAllMediaTracks]);
 
@@ -373,6 +378,7 @@ export function useQRScanner({ onScan, onError }) {
 
   const requestPermissionRetry = useCallback(async (elementId) => {
     setIsPermissionDenied(false);
+    openingRef.current = false;
     await stopScanning();
     stopAllMediaTracks();
     cameraRestartRef.current = setTimeout(() => {

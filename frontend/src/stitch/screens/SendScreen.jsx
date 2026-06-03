@@ -63,6 +63,7 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   const scannerRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const scannerContainerRef = useRef(null);
+  const openingRef = useRef(false);
   const statusRef = useRef(status);
   statusRef.current = status;
   const hasAutoSubmittedRef = useRef(false);
@@ -87,7 +88,9 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       try {
         await scannerRef.current.stop();
         await scannerRef.current.clear();
-      } catch {}
+      } catch (e) {
+        console.warn("Scanner cleanup:", e);
+      }
       scannerRef.current = null;
     }
     stopAllMediaTracks();
@@ -620,9 +623,11 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   }, [destroyScanner]);
 
   const openScanner = useCallback(async () => {
-    if (scanActive || scannerRef.current) return;
+    if (scanActive || scannerRef.current || openingRef.current) return;
+    openingRef.current = true;
     if (typeof window !== "undefined" && window.location && !window.location.protocol.includes("https") && !window.location.hostname.includes("localhost") && !window.location.hostname.includes("127.0.0.1")) {
       setScanError("Camera access requires HTTPS. Please use a secure connection.");
+      openingRef.current = false;
       return;
     }
 
@@ -646,9 +651,9 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       }
 
       // STEP 2: Trigger browser permission prompt while user gesture is still active
-      const permissionStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } }
-      });
+      // Use video:true (no facingMode) to avoid OverconstrainedError on desktops
+      // with a single front-facing camera that has no "environment" facing
+      const permissionStream = await navigator.mediaDevices.getUserMedia({ video: true });
       mediaStreamRef.current = permissionStream;
       setPermissionState("granted");
 
@@ -716,13 +721,15 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
         reason = "Camera permission was denied. Please reset camera permissions in your browser settings.";
         setPermissionState("denied");
       } else {
-        reason = errMsg || "Unable to access camera. Please try again.";
+        reason = errMsg || `Camera error: "${errName}"${errCode ? ` (code: ${errCode})` : ""}`;
       }
 
       setScanError(reason);
       setScanActive(false);
       setScannerLoading(false);
       await destroyScanner();
+    } finally {
+      openingRef.current = false;
     }
   }, [scanActive, stopAllMediaTracks, startScanWithCamera, destroyScanner]);
 
