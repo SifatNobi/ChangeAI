@@ -136,10 +136,17 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
     setGoalForm({ name: "", target: "" });
   }, [goalForm.name, goalForm.target, editingGoal]);
 
+  const locationStateRef = useRef(null);
+
   useEffect(() => {
     const saved = loadSavedPaymentContext();
     const incoming = location.state && Object.keys(location.state).length ? location.state : saved || appPaymentContext;
     if (!incoming) return;
+
+    // Skip if same context already applied
+    const incomingKey = JSON.stringify(incoming);
+    if (locationStateRef.current === incomingKey) return;
+    locationStateRef.current = incomingKey;
 
     const normalized = {
       recipient: incoming.recipient || incoming.destination || "",
@@ -461,6 +468,11 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
     return { recipient: text, amount: "", note: "", merchant: "" };
   }
 
+  const sendTxRef = useRef(sendTransaction);
+  sendTxRef.current = sendTransaction;
+  const onClearContextRef = useRef(onClearContext);
+  onClearContextRef.current = onClearContext;
+
   const stopScanner = useCallback(async () => {
     if (!scannerRef.current) return;
     try {
@@ -495,6 +507,9 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       const html5QrCode = new Html5Qrcode("qr-scanner", { verbose: false });
       scannerRef.current = html5QrCode;
 
+      const currentSendTx = sendTransaction;
+      const currentOnClearContext = onClearContext;
+
       await html5QrCode.start(
         rearCamera.id,
         {
@@ -525,15 +540,9 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
           setStatus({ type: "success", message: "QR scanned. Processing payment...", txHash: null });
           await stopScanner();
 
-          const token = localStorage.getItem("changeaipay_token") || localStorage.getItem("token");
-          if (!token) {
-            setScanError("Authentication required to process payment.");
-            return;
-          }
-
           try {
             setLoading(true);
-            const result = await sendTransaction({
+            const result = await sendTxRef.current({
               recipient,
               amount: parseFloat(amount) || 0,
               currency: "XNO",
@@ -562,7 +571,7 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
               setForm({ recipient: "", amount: "", currency: "XNO", merchant: "", destination: "", note: "", reference: "" });
               clearSavedPaymentContext();
               setPaymentContext(null);
-              onClearContext?.();
+              onClearContextRef.current?.();
 
               if (txIdFromResponse) {
                 setStatus({

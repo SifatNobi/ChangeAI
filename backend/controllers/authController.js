@@ -61,14 +61,26 @@ async function register(req, res) {
 
     try {
       const { privateKey, address } = await createWalletAndAccount();
-      user.privateKey = privateKey;
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            privateKey,
+            walletAddress: address,
+            walletStatus: "active",
+            walletCreatedAt: new Date()
+          }
+        }
+      );
       user.walletAddress = address;
       user.walletStatus = "active";
       user.walletCreatedAt = new Date();
-      await user.save();
     } catch (err) {
+      await User.updateOne(
+        { _id: user._id },
+        { $set: { walletStatus: "failed" } }
+      ).catch(() => {});
       user.walletStatus = "failed";
-      await user.save().catch(() => {});
     }
 
     res.status(201).json({
@@ -104,6 +116,7 @@ async function login(req, res) {
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(400).json({ error: "Invalid credentials" });
 
+    // Update login metadata without triggering password re-hash
     user.security = user.security || {};
     user.security.lastLoginAt = new Date();
     user.security.loginHistory = user.security.loginHistory || [];
@@ -115,7 +128,11 @@ async function login(req, res) {
     if (user.security.loginHistory.length > 10) {
       user.security.loginHistory = user.security.loginHistory.slice(0, 10);
     }
-    await user.save().catch(() => {});
+    // Use updateOne to bypass model hooks entirely, preventing password re-hash
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { security: user.security } }
+    ).catch(() => {});
 
     const token = signToken(user._id);
     return res.json({

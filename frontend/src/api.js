@@ -1,4 +1,4 @@
-import { getCachedData, setCachedData, withRetry } from "./utils/apiCache";
+import { getCachedData, setCachedData, withRetry, updateAuthToken } from "./utils/apiCache";
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "https://changeaipay.onrender.com";
@@ -7,19 +7,20 @@ const TOKEN_KEY = "changeaipay_token";
 const REQUEST_TIMEOUT = 15000; // 15 seconds
 
 export function getToken() {
-  return (localStorage.getItem(TOKEN_KEY) || localStorage.getItem("token") || "").trim();
+  return (localStorage.getItem(TOKEN_KEY) || "").trim();
 }
 
 export function setToken(token) {
   const normalizedToken = String(token || "").trim();
   if (!normalizedToken) return clearToken();
   localStorage.setItem(TOKEN_KEY, normalizedToken);
-  localStorage.setItem("token", normalizedToken);
+  updateAuthToken(normalizedToken);
 }
 
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem("token");
+  updateAuthToken("");
 }
 
 // Enhanced API request with timeout and better error handling
@@ -45,7 +46,6 @@ async function apiRequest(path, { method = "GET", token, body, timeout = REQUEST
         "Content-Type": "application/json",
         ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {})
       },
-      credentials: "include",
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal
     });
@@ -99,9 +99,9 @@ export async function register({ name, email, password }) {
   });
 }
 
-// ===== User APIs (with caching) =====
+// ===== User APIs =====
 export async function getUserProfile(token) {
-  return apiRequest("/user/profile", { token, useCache: true });
+  return apiRequest("/user/profile", { token, useCache: false });
 }
 
 // ===== Transaction APIs =====

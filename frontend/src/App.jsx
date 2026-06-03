@@ -156,10 +156,16 @@ function App() {
   const profileRef = useRef(profile);
   profileRef.current = profile;
   const bootTimeoutRef = useRef(null);
+  const justLoggedInRef = useRef(false);
 
   const cacheProfile = useCallback((data) => {
-    setProfile(data || {});
-    safeSetStorage("changeaipay_profile", data || {}, true);
+    const normalized = data || {};
+    // Ensure role is accessible at top level (not just nested in user)
+    if (normalized.user && !normalized.role) {
+      normalized.role = normalized.user.role;
+    }
+    setProfile(normalized);
+    safeSetStorage("changeaipay_profile", normalized, true);
   }, []);
 
   const cacheSession = useCallback((t) => {
@@ -176,22 +182,29 @@ function App() {
     navigate("/login");
   }, [navigate]);
 
-  const loadProfile = useCallback(async (forceRefresh = false) => {
-    if (!token) return null;
-    if (!forceRefresh && profileRef.current) return profileRef.current;
-    
+  const fetchProfile = useCallback(async (authToken) => {
+    if (!authToken) return null;
     try {
-      const data = await getUserProfile(token);
+      const data = await getUserProfile(authToken);
       cacheProfile(data);
       return data;
     } catch (err) {
-      console.error("Failed to load profile:", err);
       if (err.status === 401 || err.status === 403) {
-        logout();
+        clearToken();
+        setTokenState("");
+        setProfile(null);
+        safeClearStorage("changeaipay_session", true);
+        safeClearStorage("changeaipay_profile", true);
       }
       throw err;
     }
-  }, [token, cacheProfile, logout]);
+  }, [cacheProfile]);
+
+  const loadProfile = useCallback(async (forceRefresh = false) => {
+    if (!token) return null;
+    if (!forceRefresh && profileRef.current) return profileRef.current;
+    return fetchProfile(token);
+  }, [token, fetchProfile]);
 
   const loadHistory = useCallback(
     async ({ limit } = {}) => {
@@ -208,16 +221,26 @@ function App() {
       return;
     }
 
+    // If we just completed login, skip loading and go straight to ready
+    if (justLoggedInRef.current) {
+      justLoggedInRef.current = false;
+      setBootStatus("ready");
+      return;
+    }
+
+    // If profile already cached, skip loading
+    if (profileRef.current) {
+      setBootStatus("ready");
+      return;
+    }
+
     setBootStatus("loading");
 
-    // Set a timeout to prevent infinite loading states
     bootTimeoutRef.current = setTimeout(() => {
-      if (token) {
-        setBootStatus("ready");
-      }
+      setBootStatus("ready");
     }, 10000);
 
-    loadProfile()
+    fetchProfile(token)
       .then(() => {
         if (bootTimeoutRef.current) {
           clearTimeout(bootTimeoutRef.current);
@@ -225,7 +248,7 @@ function App() {
         }
         setBootStatus("ready");
       })
-      .catch((err) => {
+      .catch(() => {
         if (bootTimeoutRef.current) {
           clearTimeout(bootTimeoutRef.current);
           bootTimeoutRef.current = null;
@@ -244,7 +267,7 @@ function App() {
         bootTimeoutRef.current = null;
       }
     };
-  }, [token, loadProfile]);
+  }, [token, fetchProfile]);
 
   const storePaymentContext = useCallback((context) => {
     safeSetStorage("changeaipay_payment_context", { ...context, savedAt: new Date().toISOString() }, false);
@@ -263,19 +286,30 @@ function App() {
         const data = mode === "register" ? await register(payload) : await login(payload);
         const nextToken = data?.token || "";
         if (!nextToken) throw new Error("Missing token from server");
+
         setToken(nextToken);
-        setTokenState(nextToken);
         cacheSession(nextToken);
-        await loadProfile().catch(() => null);
+
+        // Populate profile from login response data to avoid extra API call
+        if (data?.user) {
+          const profileData = {
+            user: data.user,
+            role: data.role || data.user.role || "user",
+            balance: data.balance || null,
+            subscription: data.subscription || null
+          };
+          cacheProfile(profileData);
+        }
+
+        // Mark that we just logged in so boot effect skips loading
+        justLoggedInRef.current = true;
+        setTokenState(nextToken);
         navigate(redirectTo || "/dashboard", { replace: true });
       } catch (err) {
         setAuthStatus({ loading: false, error: err?.message || "Authentication failed" });
-        return;
-      } finally {
-        setAuthStatus((s) => ({ ...s, loading: false }));
       }
     },
-    [loadProfile, navigate, cacheSession]
+    [navigate, cacheSession, cacheProfile]
   );
 
   const handleOnboardingComplete = useCallback(() => {

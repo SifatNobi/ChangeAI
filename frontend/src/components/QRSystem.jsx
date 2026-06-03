@@ -20,6 +20,10 @@ export function useQRScanner({ onScan, onError }) {
   const lastScanTextRef = useRef(null);
   const permissionTimeoutRef = useRef(null);
   const cameraRestartRef = useRef(null);
+  const onScanRef = useRef(onScan);
+  const onErrorRef = useRef(onError);
+  onScanRef.current = onScan;
+  onErrorRef.current = onError;
 
   const validateNanoAddress = useCallback((text) => {
     const cleaned = String(text || "").trim().replace(/^nano:/i, "").split("?")[0];
@@ -153,7 +157,7 @@ export function useQRScanner({ onScan, onError }) {
     lastScanTextRef.current = decodedText;
 
     if (!parsed.valid) {
-      onError?.({
+      onErrorRef.current?.({
         message: "Invalid or unsupported QR payment payload.",
         rawValue: decodedText
       });
@@ -165,7 +169,7 @@ export function useQRScanner({ onScan, onError }) {
       timestamp: new Date().toISOString()
     });
 
-    onScan?.({
+    onScanRef.current?.({
       recipient: parsed.recipient,
       destination: parsed.destination,
       amount: parsed.amount != null ? parseFloat(parsed.amount) : 0,
@@ -178,7 +182,7 @@ export function useQRScanner({ onScan, onError }) {
       source: "qr",
       payloadType: parsed.type
     });
-  }, [onError, onScan, parsePaymentPayload]);
+  }, [parsePaymentPayload]);
 
   const startScanning = useCallback(async (elementId) => {
     if (scannerRef.current) return;
@@ -451,6 +455,8 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
   const [error, setError] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const onPaymentReadyRef = useRef(onPaymentReady);
+  onPaymentReadyRef.current = onPaymentReady;
 
   useEffect(() => {
     if (walletAddress && mode === "receive") {
@@ -480,7 +486,7 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
       await stopScanning();
       setError(null);
 
-      onPaymentReady?.({
+      onPaymentReadyRef.current?.({
         recipient: data.recipient,
         amount: data.amount,
         currency: data.currency,

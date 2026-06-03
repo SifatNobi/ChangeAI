@@ -1,6 +1,7 @@
 // Simple in-memory cache for API responses
 const cache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+let currentTokenHash = "";
 
 export function getCachedData(key) {
   const item = cache.get(key);
@@ -21,6 +22,15 @@ export function clearCache(key) {
     cache.delete(key);
   } else {
     cache.clear();
+  }
+}
+
+// Invalidate cache when auth token changes
+export function updateAuthToken(token) {
+  const newHash = token ? token.slice(-20) : "";
+  if (newHash !== currentTokenHash) {
+    cache.clear();
+    currentTokenHash = newHash;
   }
 }
 
