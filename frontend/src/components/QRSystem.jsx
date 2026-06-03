@@ -192,18 +192,9 @@ export function useQRScanner({ onScan, onError }) {
     });
   }, [parsePaymentPayload]);
 
-  const requestCameraPermission = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } }
-    });
-    mediaStreamRef.current = stream;
-    return true;
-  }, []);
-
   const startScanning = useCallback(async (elementId) => {
     if (scannerRef.current) return;
 
-    // Confirm element exists in DOM before proceeding
     const element = document.getElementById(elementId);
     if (!element) {
       throw new Error("Scanner element not found in DOM. Please try again.");
@@ -220,8 +211,25 @@ export function useQRScanner({ onScan, onError }) {
       setCameraError(null);
       setIsPermissionDenied(false);
 
-      // Let html5-qrcode handle its own getUserMedia internally;
-      // a separate permission pre-flight causes double getUserMedia contention on mobile.
+      // STEP 1: Detect if any camera hardware exists
+      let videoDevices;
+      try {
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = allDevices.filter(d => d.kind === "videoinput");
+      } catch {
+        throw Object.assign(new Error("Failed to enumerate devices on this system."), { code: "ENUMERATE_FAILED" });
+      }
+      if (videoDevices.length === 0) {
+        throw Object.assign(new Error("No camera detected on this device."), { code: "NO_CAMERA_DEVICE" });
+      }
+
+      // STEP 2: Trigger browser permission prompt while user gesture is active
+      const permissionStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } }
+      });
+      mediaStreamRef.current = permissionStream;
+
+      // Enumerate cameras (labels now available since we have permission)
       let cameras = [];
       try {
         cameras = await Promise.race([
@@ -238,13 +246,15 @@ export function useQRScanner({ onScan, onError }) {
         throw Object.assign(new Error("No camera found on this device"), { code: "NO_CAMERAS" });
       }
 
-      // STEP 3: Select camera (rear/environment preferred)
+      // Release permission stream and let camera hardware settle
+      stopAllMediaTracks();
+      await new Promise(r => setTimeout(r, 350));
+
       const rearCamera = cameras.find(
         (c) => /back|rear|environment|camera\d|back-facing/i.test(c.label)
       );
       const selectedCamera = rearCamera || cameras[cameras.length - 1];
 
-      // Initialize scanner with selected camera
       const html5QrCode = new Html5Qrcode(elementId, { verbose: false });
       scannerRef.current = html5QrCode;
 
@@ -263,11 +273,13 @@ export function useQRScanner({ onScan, onError }) {
           () => {}
         );
       } catch (startErr) {
-        // STEP 6: Fallback to front camera if rear fails and multiple cameras exist
+        scannerRef.current = null;
         if (cameras.length > 1 && rearCamera) {
           const frontCamera = cameras.find(c => !/back|rear|environment/i.test(c.label)) || cameras[0];
           try {
-            await html5QrCode.start(
+            const fallbackCode = new Html5Qrcode(elementId, { verbose: false });
+            scannerRef.current = fallbackCode;
+            await fallbackCode.start(
               frontCamera.id,
               {
                 fps: 10,
@@ -280,6 +292,7 @@ export function useQRScanner({ onScan, onError }) {
               () => {}
             );
           } catch (fallbackErr) {
+            scannerRef.current = null;
             throw new Error(`All cameras failed: ${fallbackErr.message}`);
           }
         } else {
@@ -297,11 +310,14 @@ export function useQRScanner({ onScan, onError }) {
       const errorCode = err.code || "";
 
       let mappedError;
-      if (errorCode === "PERMISSION_DENIED" || errorName === "NotAllowedError" || errorName === "PermissionDeniedError" || errorMessage.toLowerCase().includes("permission")) {
+      if (errorCode === "NO_CAMERA_DEVICE") {
+        mappedError = "No camera detected on this device.";
+        setHasPermission(false);
+      } else if (errorCode === "PERMISSION_DENIED" || errorName === "NotAllowedError" || errorName === "PermissionDeniedError" || errorMessage.toLowerCase().includes("permission")) {
         mappedError = "Camera permission denied. Please allow camera access in your browser settings and try again.";
         setHasPermission(false);
         setIsPermissionDenied(true);
-      } else if (errorCode === "NO_CAMERAS" || errorName === "NotFoundError" || errorMessage.includes("No camera")) {
+      } else if (errorCode === "NO_CAMERAS" || errorName === "NotFoundError" || errorMessage.includes("No camera") || errorMessage.includes("no camera")) {
         mappedError = "No camera found on this device. Please use a device with a camera.";
         setHasPermission(false);
       } else if (errorName === "NotReadableError" || errorMessage.includes("already in use")) {
@@ -325,7 +341,7 @@ export function useQRScanner({ onScan, onError }) {
       scannerRef.current = null;
       setIsScanning(false);
     }
-  }, [handleScanSuccess]);
+  }, [handleScanSuccess, stopAllMediaTracks]);
 
   const stopScanning = useCallback(async () => {
     if (scannerRef.current) {

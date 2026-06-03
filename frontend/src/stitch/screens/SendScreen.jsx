@@ -490,23 +490,6 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   const onClearContextRef = useRef(onClearContext);
   onClearContextRef.current = onClearContext;
 
-  const requestCameraPermission = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } }
-    });
-    mediaStreamRef.current = stream;
-    return true;
-  }, []);
-
-  const fallbackToFrontCamera = useCallback(async () => {
-    stopAllMediaTracks();
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "user" } }
-    });
-    mediaStreamRef.current = stream;
-    return true;
-  }, [stopAllMediaTracks]);
-
   const startScanWithCamera = useCallback(async (Html5Qrcode, Html5QrcodeSupportedFormats, cameraId) => {
     setPermissionState("starting");
 
@@ -519,7 +502,8 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
     const html5QrCode = new Html5Qrcode("qr-scanner", { verbose: false });
     scannerRef.current = html5QrCode;
 
-    await html5QrCode.start(
+    try {
+      await html5QrCode.start(
       cameraId,
       {
         fps: 10,
@@ -619,6 +603,10 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       },
       () => {}
     );
+    } catch (startErr) {
+      scannerRef.current = null;
+      throw startErr;
+    }
 
     setPermissionState("granted");
     setScannerLoading(false);
@@ -633,14 +621,11 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
 
   const openScanner = useCallback(async () => {
     if (scanActive || scannerRef.current) return;
-    // Prevent mounting scanner if not on secure context
     if (typeof window !== "undefined" && window.location && !window.location.protocol.includes("https") && !window.location.hostname.includes("localhost") && !window.location.hostname.includes("127.0.0.1")) {
       setScanError("Camera access requires HTTPS. Please use a secure connection.");
       return;
     }
 
-    // MUST set scanActive BEFORE any async work so the container is visible
-    // when html5-qrcode creates the video element (autoplay requires visible parent)
     setScanActive(true);
     setScanError("");
     setScannerLoading(true);
@@ -648,10 +633,28 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
     hasAutoSubmittedRef.current = false;
 
     try {
+      // STEP 1: Detect if any camera hardware exists BEFORE anything else
+      let videoDevices;
+      try {
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = allDevices.filter(d => d.kind === "videoinput");
+      } catch {
+        throw new Error("Failed to enumerate devices on this system.");
+      }
+      if (videoDevices.length === 0) {
+        throw Object.assign(new Error("No camera detected on this device."), { code: "NO_CAMERA_DEVICE" });
+      }
+
+      // STEP 2: Trigger browser permission prompt while user gesture is still active
+      const permissionStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } }
+      });
+      mediaStreamRef.current = permissionStream;
+      setPermissionState("granted");
+
+      // STEP 3 + 4: Import library, enumerate cameras (labels now available)
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
 
-      // Let html5-qrcode handle its own getUserMedia internally;
-      // a separate permission pre-flight causes double getUserMedia contention on mobile.
       let cameras;
       try {
         cameras = await Html5Qrcode.getCameras();
@@ -662,6 +665,10 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       if (!cameras || cameras.length === 0) {
         throw new Error("NoCameras");
       }
+
+      // Release permission stream and let camera hardware settle
+      stopAllMediaTracks();
+      await new Promise(r => setTimeout(r, 350));
 
       const rearCamera = cameras.find(
         (c) => /back|rear|environment|camera\d|back-facing/i.test(c.label)
@@ -689,12 +696,15 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
     } catch (err) {
       const errName = err?.name || "";
       const errMsg = String(err?.message || "");
+      const errCode = err?.code || "";
 
       let reason;
-      if (errName === "NotAllowedError" || errName === "PermissionDeniedError" || errMsg.includes("Permission denied") || errMsg.includes("permission")) {
+      if (errCode === "NO_CAMERA_DEVICE") {
+        reason = "No camera detected on this device.";
+      } else if (errName === "NotAllowedError" || errName === "PermissionDeniedError" || errMsg.includes("Permission denied") || errMsg.includes("permission")) {
         reason = "Camera permission denied. Please allow camera access in your browser settings and try again.";
         setPermissionState("denied");
-      } else if (errName === "NotFoundError" || errMsg === "NoCameras" || errMsg.includes("No camera")) {
+      } else if (errName === "NotFoundError" || errMsg === "NoCameras" || errMsg.includes("No camera") || errMsg.includes("no camera")) {
         reason = "No camera found on this device. Please use a device with a camera.";
       } else if (errName === "NotReadableError" || errMsg.includes("already in use")) {
         reason = "Camera is already in use by another application. Please close other apps using the camera.";
@@ -714,7 +724,7 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       setScannerLoading(false);
       await destroyScanner();
     }
-  }, [scanActive, requestCameraPermission, startScanWithCamera, destroyScanner]);
+  }, [scanActive, stopAllMediaTracks, startScanWithCamera, destroyScanner]);
 
   const handleClearPaymentContext = useCallback(() => {
     setPaymentContext(null);
