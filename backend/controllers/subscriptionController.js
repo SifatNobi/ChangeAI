@@ -153,29 +153,41 @@ export async function getCurrentSubscription(req, res) {
     const userId = req.user._id;
     
     let subscription = await UserSubscription.findOne({ userId });
-    
-    if (!subscription) {
-      subscription = await UserSubscription.create({
-        userId,
-        plan: "free_trial",
-        status: "active",
-        features: PLANS_CONFIG.free_trial.features,
-        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-      });
-    }
 
-    // Check and reset expired free trial
-    if (subscription.freeTrial && subscription.freeTrial.activated && !subscription.freeTrial.firstTransactionCompleted) {
-      if (subscription.freeTrial.expiresAt && new Date() > subscription.freeTrial.expiresAt) {
-        subscription.freeTrial.activated = false;
-        subscription.freeTrial.clickedActivation = false;
-        subscription.freeTrial.activatedAt = null;
-        subscription.freeTrial.firstTransactionCompleted = false;
-        subscription.freeTrial.expiresAt = null;
-        subscription.plan = "free_trial";
-        subscription.status = "expired";
-        await subscription.save();
+    if (subscription) {
+      // Check and reset expired free trial without turning it into a stale expired plan.
+      if (subscription.freeTrial && subscription.freeTrial.activated && !subscription.freeTrial.firstTransactionCompleted) {
+        if (subscription.freeTrial.expiresAt && new Date() > subscription.freeTrial.expiresAt) {
+          subscription.freeTrial.activated = false;
+          subscription.freeTrial.clickedActivation = false;
+          subscription.freeTrial.activatedAt = null;
+          subscription.freeTrial.firstTransactionCompleted = false;
+          subscription.freeTrial.expiresAt = null;
+          subscription.plan = "free_trial";
+          subscription.status = "active";
+          await subscription.save();
+        }
       }
+    } else {
+      return res.json({
+        success: true,
+        subscription: {
+          plan: "free_trial",
+          status: "inactive",
+          startedAt: null,
+          currentPeriodEnd: null,
+          features: PLANS_CONFIG.free_trial.features,
+          usage: null,
+          planDetails: PLANS_CONFIG.free_trial,
+          freeTrial: {
+            activated: false,
+            clickedActivation: false,
+            firstTransactionCompleted: false,
+            expiresAt: null,
+            activatedAt: null
+          }
+        }
+      });
     }
 
     const planConfig = PLANS_CONFIG[subscription.plan];
@@ -238,6 +250,13 @@ export async function changePlan(req, res) {
         transactionsThisMonth: 0,
         amountSentThisMonth: 0
       };
+      subscription.freeTrial = {
+        activated: false,
+        clickedActivation: false,
+        firstTransactionCompleted: false,
+        activatedAt: null,
+        expiresAt: null
+      };
       await subscription.save();
     } else {
       subscription = await UserSubscription.create({
@@ -246,11 +265,24 @@ export async function changePlan(req, res) {
         status: "active",
         features: planConfig.features,
         currentPeriodStart: now,
-        currentPeriodEnd: periodEnd
+        currentPeriodEnd: periodEnd,
+        freeTrial: {
+          activated: false,
+          clickedActivation: false,
+          firstTransactionCompleted: false,
+          activatedAt: null,
+          expiresAt: null
+        }
       });
     }
 
-    await User.findByIdAndUpdate(userId, { subscriptionPlan: planId });
+    await User.findByIdAndUpdate(userId, {
+      subscriptionPlan: planId,
+      plan_type: req.user.role === "merchant" ? "merchant" : "pro",
+      is_free_active: false,
+      free_trial_activated_at: null,
+      free_trial_expiry: null
+    });
 
     res.json({
       success: true,

@@ -290,19 +290,14 @@ function App() {
         setToken(nextToken);
         cacheSession(nextToken);
 
-        // Populate profile from login response data to avoid extra API call
-        if (data?.user) {
-          const profileData = {
-            user: data.user,
-            role: data.role || data.user.role || "user",
-            balance: data.balance || null,
-            subscription: data.subscription || null
-          };
-          cacheProfile(profileData);
+        const profileData = await fetchProfile(nextToken);
+        if (!profileData) {
+          throw new Error("Failed to load profile");
         }
 
         // Mark that we just logged in so boot effect skips loading
         justLoggedInRef.current = true;
+        setAuthStatus({ loading: false, error: "" });
         setTokenState(nextToken);
         navigate(redirectTo || "/dashboard", { replace: true });
       } catch (err) {

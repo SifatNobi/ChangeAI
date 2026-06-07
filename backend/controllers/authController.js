@@ -18,6 +18,11 @@ function serializeUser(user) {
     walletStatus: user.walletStatus,
     walletId: user.walletId,
     walletCreatedAt: user.walletCreatedAt,
+    subscriptionPlan: user.subscriptionPlan,
+    plan_type: user.plan_type || (user.role === "merchant" ? "merchant" : "free"),
+    free_trial_activated_at: user.free_trial_activated_at || null,
+    free_trial_expiry: user.free_trial_expiry || null,
+    is_free_active: Boolean(user.is_free_active),
     createdAt: user.createdAt
   };
 }
@@ -56,7 +61,12 @@ async function register(req, res) {
       email, 
       password, 
       role: userRole,
-      walletStatus: "pending" 
+      walletStatus: "pending",
+      subscriptionPlan: "free_trial",
+      plan_type: userRole === "merchant" ? "merchant" : "free",
+      free_trial_activated_at: null,
+      free_trial_expiry: null,
+      is_free_active: false
     });
 
     try {

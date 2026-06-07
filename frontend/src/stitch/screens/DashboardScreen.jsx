@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import TransactionItem from "../components/TransactionItem";
-import { buildNanoUri, formatAmount } from "../utils/format";
+import { buildMerchantQrPayload, formatAmount } from "../utils/format";
 
 export default function DashboardScreen({ profile, token, loadHistory }) {
   const [transactions, setTransactions] = useState([]);
@@ -27,8 +27,13 @@ export default function DashboardScreen({ profile, token, loadHistory }) {
     "";
 
   const receiveUri = useMemo(
-    () => buildNanoUri(walletAddress, receiveAmount, sessionId),
-    [walletAddress, receiveAmount, sessionId]
+    () => buildMerchantQrPayload(
+      walletAddress,
+      receiveAmount,
+      profile?.user?.id || profile?.id,
+      profile?.user?.name || profile?.name
+    ),
+    [walletAddress, receiveAmount, profile]
   );
 
   useEffect(() => {

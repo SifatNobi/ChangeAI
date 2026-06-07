@@ -372,17 +372,24 @@ export default function PricingScreen({ currentPlan = "free_trial", onSelectPlan
   const CONSUMER_PLAN_ORDER = ["free_trial", "edge", "prime", "apex"];
   const effectivePlan = currentSubscription?.plan || currentPlan || "free_trial";
   const currentPlanIndex = CONSUMER_PLAN_ORDER.indexOf(effectivePlan);
+  const isActiveFreeTrial = currentSubscription?.plan === "free_trial" && currentSubscription?.freeTrial?.activated;
 
   const displayPlans = activeTab === "consumers" ? CONSUMER_PLANS : MERCHANT_PLANS;
 
   const getPlanState = (planId) => {
-    if (planId === currentSubscription?.plan) return "current";
+    const isCurrentPlan = planId === currentSubscription?.plan && (planId !== "free_trial" || isActiveFreeTrial);
+    if (isCurrentPlan) return "current";
+
+    if (activeTab === "consumers" && planId === "free_trial") {
+      if (currentPlanIndex > 0) return "downgrade-locked";
+      return "available";
+    }
+
     if (activeTab === "consumers") {
       const planIndex = CONSUMER_PLAN_ORDER.indexOf(planId);
       if (planIndex < currentPlanIndex) return "downgrade-locked";
-      if (planId === "free_trial" && currentPlanIndex > 0) return "downgrade-locked";
     }
-    if (activeTab === "consumers" && planId === "free_trial") return "active";
+
     return "upgrade";
   };
 

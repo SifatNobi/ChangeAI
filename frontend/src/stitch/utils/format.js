@@ -21,3 +21,19 @@ export function buildNanoUri(address, amount, sessionId) {
   return `nano:${safeAddress}${queryString}`;
 }
 
+export function buildMerchantQrPayload(address, amount, merchantId, merchantName) {
+  const safeAddress = String(address || "").trim();
+  if (!safeAddress) return "";
+
+  const safeAmount = String(amount || "").trim();
+  const payload = {
+    merchantId: String(merchantId || "").trim() || null,
+    merchantName: String(merchantName || "").trim() || null,
+    paymentDestination: safeAddress,
+    amount: safeAmount || null,
+    timestamp: Date.now()
+  };
+
+  return JSON.stringify(payload);
+}
+

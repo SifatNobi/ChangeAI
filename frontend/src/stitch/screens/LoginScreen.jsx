@@ -94,7 +94,7 @@ export default function LoginScreen({ mode = "login", loading = false, error = "
         <div className="card auth-card glass-card login-surface">
           <h2>{isSignup ? "Create Account" : "Welcome Back"}</h2>
 
-          {(isSignup || isLogin) && (
+          {isSignup && (
             <div className="role-selector">
               <label className="role-label">I am signing in as:</label>
               <div className="role-options">

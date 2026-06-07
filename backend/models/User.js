@@ -67,6 +67,22 @@ const userSchema = new mongoose.Schema({
       timestamp: { type: Date, default: Date.now }
     }]
   },
+  subscriptionPlan: {
+    type: String,
+    enum: ["free_trial", "edge", "prime", "apex"],
+    default: "free_trial"
+  },
+  plan_type: {
+    type: String,
+    enum: ["free", "pro", "merchant"],
+    default: "free"
+  },
+  free_trial_activated_at: Date,
+  free_trial_expiry: Date,
+  is_free_active: {
+    type: Boolean,
+    default: false
+  },
   limits: {
     daily: { type: Number, default: 1000 },
     monthly: { type: Number, default: 10000 }
@@ -103,6 +119,11 @@ userSchema.methods.toPublicJSON = function() {
     role: this.role,
     walletAddress: this.walletAddress,
     profile: this.profile,
+    subscriptionPlan: this.subscriptionPlan,
+    plan_type: this.plan_type,
+    free_trial_activated_at: this.free_trial_activated_at || null,
+    free_trial_expiry: this.free_trial_expiry || null,
+    is_free_active: Boolean(this.is_free_active),
     preferences: this.preferences,
     verification: {
       emailVerified: this.verification?.emailVerified,

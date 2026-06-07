@@ -32,6 +32,22 @@ async function profile(req, res) {
       return res.status(404).json({ error: "User not found" });
     }
 
+    let subscription = await UserSubscription.findOne({ userId: req.user.id });
+    if (subscription) {
+      const now = new Date();
+      if (subscription.freeTrial && subscription.freeTrial.activated && !subscription.freeTrial.firstTransactionCompleted) {
+        if (subscription.freeTrial.expiresAt && now > subscription.freeTrial.expiresAt) {
+          subscription.freeTrial.activated = false;
+          subscription.freeTrial.clickedActivation = false;
+          subscription.freeTrial.activatedAt = null;
+          subscription.freeTrial.firstTransactionCompleted = false;
+          subscription.freeTrial.expiresAt = null;
+          subscription.status = "active";
+          await subscription.save().catch(() => {});
+        }
+      }
+    }
+
     let balance = null;
     if (user.walletAddress) {
       try {
@@ -47,10 +63,33 @@ async function profile(req, res) {
       }
     }
 
+    const planType = user.role === "merchant"
+      ? "merchant"
+      : subscription?.plan && subscription.plan !== "free_trial"
+        ? "pro"
+        : "free";
+
+    const updatedUserFields = {
+      plan_type: planType,
+      is_free_active: Boolean(subscription?.freeTrial?.activated),
+      free_trial_activated_at: subscription?.freeTrial?.activatedAt || null,
+      free_trial_expiry: subscription?.freeTrial?.expiresAt || null
+    };
+
+    if (
+      user.plan_type !== updatedUserFields.plan_type ||
+      Boolean(user.is_free_active) !== updatedUserFields.is_free_active ||
+      String(user.free_trial_activated_at || "") !== String(updatedUserFields.free_trial_activated_at || "") ||
+      String(user.free_trial_expiry || "") !== String(updatedUserFields.free_trial_expiry || "")
+    ) {
+      await User.updateOne({ _id: user._id }, { $set: updatedUserFields }).catch(() => {});
+      Object.assign(user, updatedUserFields);
+    }
+
     const data = {
       user: authController.serializeUser(user),
       balance,
-      subscription: await UserSubscription.findOne({ userId: req.user.id }).lean()
+      subscription: subscription ? await UserSubscription.findById(subscription._id).lean() : null
     };
     setCache(cacheKey, data);
     return res.json(data);

@@ -719,7 +719,7 @@ export async function activateFreeTrial(req, res) {
         }
       });
     } else {
-      if (subscription.freeTrial.activated) {
+      if (subscription.freeTrial?.activated) {
         return res.status(400).json({ success: false, error: "Free trial already activated" });
       }
 
@@ -737,6 +737,13 @@ export async function activateFreeTrial(req, res) {
       subscription.currentPeriodEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       await subscription.save();
     }
+
+    await User.findByIdAndUpdate(userId, {
+      plan_type: req.user.role === "merchant" ? "merchant" : "free",
+      is_free_active: true,
+      free_trial_activated_at: subscription.freeTrial.activatedAt,
+      free_trial_expiry: subscription.freeTrial.expiresAt
+    });
 
     logger.info("Free trial activation clicked", { userId });
 
@@ -764,7 +771,7 @@ export async function completeFirstTransaction(req, res) {
       return res.status(404).json({ success: false, error: "No subscription found" });
     }
 
-    if (!subscription.freeTrial.activated) {
+    if (!subscription.freeTrial?.activated) {
       return res.status(400).json({ success: false, error: "Free trial not activated" });
     }
 
@@ -774,14 +781,28 @@ export async function completeFirstTransaction(req, res) {
 
     if (subscription.freeTrial.expiresAt && new Date() > subscription.freeTrial.expiresAt) {
       subscription.freeTrial.activated = false;
+      subscription.freeTrial.clickedActivation = false;
+      subscription.freeTrial.activatedAt = null;
+      subscription.freeTrial.firstTransactionCompleted = false;
+      subscription.freeTrial.expiresAt = null;
       subscription.plan = "free_trial";
-      subscription.status = "expired";
+      subscription.status = "active";
       await subscription.save();
+      await User.findByIdAndUpdate(userId, {
+        is_free_active: false,
+        free_trial_activated_at: null,
+        free_trial_expiry: null
+      });
       return res.status(400).json({ success: false, error: "Free trial window expired (24h)" });
     }
 
     subscription.freeTrial.firstTransactionCompleted = true;
     await subscription.save();
+    await User.findByIdAndUpdate(userId, {
+      is_free_active: true,
+      free_trial_activated_at: subscription.freeTrial.activatedAt,
+      free_trial_expiry: subscription.freeTrial.expiresAt
+    });
 
     logger.info("First transaction completed for free trial", { userId });
 
