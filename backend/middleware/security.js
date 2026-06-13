@@ -151,6 +151,16 @@ export const inputSanitization = (req, res, next) => {
   next();
 };
 
+export const adminMiddleware = async (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+};
+
 export const securityHeaders = (req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -158,13 +168,4 @@ export const securityHeaders = (req, res, next) => {
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   next();
-};
-
-export default {
-  authMiddleware,
-  roleMiddleware,
-  optionalAuthMiddleware,
-  rateLimitMiddleware,
-  inputSanitization,
-  securityHeaders
 };
