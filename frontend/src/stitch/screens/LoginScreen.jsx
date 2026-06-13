@@ -1,6 +1,12 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { COMPANY_LOGO, COMPANY_NAME } from "../../constants/branding";
+
+const LOADING_MESSAGES = [
+  "Authenticating...",
+  "Securing session...",
+  "Loading account..."
+];
 
 export default function LoginScreen({ mode = "login", loading = false, error = "", onSubmit }) {
   const navigate = useNavigate();
@@ -14,6 +20,9 @@ export default function LoginScreen({ mode = "login", loading = false, error = "
   const isLogin = !isSignup;
   const videoRef = useRef(null);
   const [isMuted, setIsMuted] = useState(true);
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+  const submittingRef = useRef(false);
+  const loadingTimeoutRef = useRef(null);
 
   const handleChange = (e) => {
     setForm({
@@ -24,9 +33,8 @@ export default function LoginScreen({ mode = "login", loading = false, error = "
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!onSubmit) {
-      return;
-    }
+    if (!onSubmit || submittingRef.current) return;
+    submittingRef.current = true;
 
     const payload = isSignup
       ? {
@@ -40,8 +48,32 @@ export default function LoginScreen({ mode = "login", loading = false, error = "
           password: form.password
         };
 
-    await onSubmit(payload);
+    loadingTimeoutRef.current = setInterval(() => {
+      setLoadingMessageIndex(prev => Math.min(prev + 1, LOADING_MESSAGES.length - 1));
+    }, 2000);
+
+    try {
+      await onSubmit(payload);
+    } finally {
+      submittingRef.current = false;
+      if (loadingTimeoutRef.current) {
+        clearInterval(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+      setLoadingMessageIndex(0);
+    }
   };
+
+  useEffect(() => {
+    if (!loading) {
+      submittingRef.current = false;
+      if (loadingTimeoutRef.current) {
+        clearInterval(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+      setLoadingMessageIndex(0);
+    }
+  }, [loading]);
 
   const toggleMuted = () => {
     if (videoRef.current) {
@@ -173,10 +205,10 @@ export default function LoginScreen({ mode = "login", loading = false, error = "
             <button
               type="submit"
               className="primary-button auth-cta"
-              disabled={loading}
+              disabled={loading || submittingRef.current}
             >
-              {loading
-                ? "Please wait..."
+              {loading || submittingRef.current
+                ? LOADING_MESSAGES[loadingMessageIndex]
                 : isSignup
                 ? `Sign Up as ${form.role === "merchant" ? "Merchant" : "User"}`
                 : "Login"}

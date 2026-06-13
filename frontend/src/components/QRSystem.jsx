@@ -79,10 +79,17 @@ export function useQRScanner({ onScan, onError }) {
       amount: null,
       currency: "XNO",
       merchant: "",
+      merchantName: "",
       merchantId: "",
       merchant_id: "",
       note: "",
+      description: "",
       reference: "",
+      paymentDestination: "",
+      timestamp: null,
+      expiryTimestamp: null,
+      qrVersion: null,
+      expired: false,
       metadata: {}
     };
 
@@ -90,16 +97,28 @@ export function useQRScanner({ onScan, onError }) {
       const jsonPayload = JSON.parse(rawValue);
       if (jsonPayload && typeof jsonPayload === "object") {
         payload.type = jsonPayload.type || jsonPayload.source || "json_payment";
-        payload.address = jsonPayload.recipient || jsonPayload.address || jsonPayload.wallet || jsonPayload.destination;
+        payload.address = jsonPayload.recipientWallet || jsonPayload.recipient || jsonPayload.address || jsonPayload.wallet || jsonPayload.destination;
         payload.recipient = payload.address;
-        payload.destination = jsonPayload.destination || payload.address;
+        payload.destination = jsonPayload.paymentDestination || jsonPayload.destination || payload.address;
         payload.amount = jsonPayload.amount ?? jsonPayload.value ?? jsonPayload.total ?? null;
         payload.currency = jsonPayload.currency || jsonPayload.currency_code || jsonPayload.asset || payload.currency;
-        payload.merchant = jsonPayload.merchant || jsonPayload.merchantName || jsonPayload.payee || jsonPayload.business || "";
-        payload.merchantId = jsonPayload.merchant_id || jsonPayload.merchantId || jsonPayload.merchant_id || "";
-        payload.note = jsonPayload.note || jsonPayload.message || jsonPayload.description || "";
-        payload.reference = jsonPayload.reference || jsonPayload.memo || jsonPayload.note || "";
+        payload.merchant = jsonPayload.merchantName || jsonPayload.merchant || jsonPayload.payee || jsonPayload.business || "";
+        payload.merchantName = jsonPayload.merchantName || payload.merchant;
+        payload.merchantId = jsonPayload.merchant_id || jsonPayload.merchantId || "";
+        payload.note = jsonPayload.description || jsonPayload.note || jsonPayload.message || "";
+        payload.description = jsonPayload.description || payload.note;
+        payload.reference = jsonPayload.reference || jsonPayload.memo || "";
+        payload.paymentDestination = jsonPayload.paymentDestination || jsonPayload.destination || payload.destination;
+        payload.timestamp = jsonPayload.timestamp || null;
+        payload.expiryTimestamp = jsonPayload.expiryTimestamp || null;
+        payload.qrVersion = jsonPayload.qrVersion || null;
         payload.metadata = jsonPayload.metadata || {};
+
+        if (payload.expiryTimestamp && Date.now() / 1000 > payload.expiryTimestamp) {
+          payload.expired = true;
+          payload.valid = false;
+          return payload;
+        }
       }
     } catch {
       // not JSON, continue
@@ -169,6 +188,15 @@ export function useQRScanner({ onScan, onError }) {
     lastScanTimeRef.current = now;
     lastScanTextRef.current = decodedText;
 
+    if (parsed.expired) {
+      onErrorRef.current?.({
+        message: "This payment request has expired.",
+        rawValue: decodedText,
+        expired: true
+      });
+      return;
+    }
+
     if (!parsed.valid) {
       onErrorRef.current?.({
         message: "Invalid or unsupported QR payment payload.",
@@ -184,13 +212,19 @@ export function useQRScanner({ onScan, onError }) {
 
     onScanRef.current?.({
       recipient: parsed.recipient,
-      destination: parsed.destination,
+      destination: parsed.destination || parsed.paymentDestination,
       amount: parsed.amount != null ? parseFloat(parsed.amount) : 0,
       currency: parsed.currency || "XNO",
       merchant: parsed.merchant,
+      merchantName: parsed.merchantName,
       merchantId: parsed.merchantId,
       note: parsed.note,
+      description: parsed.description,
       reference: parsed.reference,
+      paymentDestination: parsed.paymentDestination,
+      timestamp: parsed.timestamp,
+      expiryTimestamp: parsed.expiryTimestamp,
+      qrVersion: parsed.qrVersion,
       metadata: parsed.metadata,
       rawValue: parsed.rawValue,
       source: "qr",
@@ -421,9 +455,25 @@ export function useQRScanner({ onScan, onError }) {
   };
 }
 
-export function QRReceiveQR({ walletAddress, amount, note }) {
+export function QRReceiveQR({ walletAddress, amount, note, merchantName, currency, paymentDestination, reference }) {
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [generating, setGenerating] = useState(false);
+
+  const buildPaymentPayload = useCallback(() => {
+    const payload = {
+      merchantName: merchantName || "",
+      recipientWallet: walletAddress.trim(),
+      amount: String(amount || "0").trim(),
+      currency: currency || "XNO",
+      paymentDestination: paymentDestination || "",
+      description: note || "",
+      reference: reference || "",
+      timestamp: Math.floor(Date.now() / 1000),
+      expiryTimestamp: Math.floor(Date.now() / 1000) + 300,
+      qrVersion: "1.0"
+    };
+    return JSON.stringify(payload);
+  }, [walletAddress, amount, note, merchantName, currency, paymentDestination, reference]);
 
   useEffect(() => {
     if (!walletAddress) {
@@ -432,20 +482,9 @@ export function QRReceiveQR({ walletAddress, amount, note }) {
     }
 
     setGenerating(true);
+    const payload = buildPaymentPayload();
 
-    const params = [];
-    if (amount) {
-      params.push(`amount=${encodeURIComponent(String(amount).trim())}`);
-    }
-    if (note) {
-      params.push(`note=${encodeURIComponent(String(note).trim())}`);
-    }
-    params.push(`timestamp=${Date.now()}`);
-
-    const queryString = params.length > 0 ? `?${params.join("&")}` : "";
-    const nanoUri = `nano:${walletAddress.trim()}${queryString}`;
-
-    QRCode.toDataURL(nanoUri, {
+    QRCode.toDataURL(payload, {
       margin: 1,
       width: 300,
       color: {
@@ -461,7 +500,7 @@ export function QRReceiveQR({ walletAddress, amount, note }) {
         setQrDataUrl("");
         setGenerating(false);
       });
-  }, [walletAddress, amount, note]);
+  }, [walletAddress, amount, note, merchantName, currency, paymentDestination, reference, buildPaymentPayload]);
 
   if (!walletAddress) {
     return (
@@ -515,6 +554,7 @@ export function QRReceiveQR({ walletAddress, amount, note }) {
 
 export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
   const [mode, setMode] = useState("receive");
+  const [qrType, setQrType] = useState("dynamic");
   const [recipient, setRecipient] = useState(walletAddress || "");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("XNO");
@@ -523,6 +563,7 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
   const [destination, setDestination] = useState("");
   const [note, setNote] = useState("");
   const [reference, setReference] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [scannedData, setScannedData] = useState(null);
   const [error, setError] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -550,10 +591,10 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
       setRecipient(data.recipient || data.destination || "");
       setAmount(data.amount != null ? String(data.amount) : "");
       setCurrency(data.currency || "XNO");
-      setMerchant(data.merchant || "");
+      setMerchant(data.merchant || data.merchantName || "");
       setMerchantId(data.merchantId || "");
-      setDestination(data.destination || data.recipient || "");
-      setNote(data.note || "");
+      setDestination(data.paymentDestination || data.destination || data.recipient || "");
+      setNote(data.description || data.note || "");
       setReference(data.reference || "");
       setIsScanning(false);
       await stopScanning();
@@ -563,11 +604,17 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
         recipient: data.recipient,
         amount: data.amount,
         currency: data.currency,
-        merchant: data.merchant,
+        merchant: data.merchant || data.merchantName,
+        merchantName: data.merchantName,
         merchantId: data.merchantId,
-        destination: data.destination,
-        note: data.note,
+        destination: data.paymentDestination || data.destination,
+        note: data.description || data.note,
+        description: data.description,
         reference: data.reference,
+        paymentDestination: data.paymentDestination,
+        timestamp: data.timestamp,
+        expiryTimestamp: data.expiryTimestamp,
+        qrVersion: data.qrVersion,
         metadata: data.metadata,
         rawValue: data.rawValue,
         source: data.source,
@@ -575,7 +622,11 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
       });
     },
     onError: (err) => {
-      setError(err.message || "Unable to scan QR code.");
+      if (err.expired) {
+        setError("This payment request has expired.");
+      } else {
+        setError(err.message || "Unable to scan QR code.");
+      }
     }
   });
 
@@ -633,38 +684,135 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
       {mode === "receive" && (
         <div className="receive-mode">
           <h3>Receive Payment</h3>
-          <p className="muted">Set an amount and share your QR code</p>
+          <p className="muted">Generate a QR code to receive payments</p>
+
+          <div className="qr-type-tabs">
+            {["static", "dynamic", "merchant", "personal"].map(type => (
+              <button
+                key={type}
+                className={`qr-type-btn ${qrType === type ? "active" : ""}`}
+                onClick={() => setQrType(type)}
+              >
+                {type === "static" && "📌 Static"}
+                {type === "dynamic" && "⚡ Dynamic"}
+                {type === "merchant" && "🏪 Merchant"}
+                {type === "personal" && "👤 Personal"}
+              </button>
+            ))}
+          </div>
 
           <form className="receive-form">
-            <input
-              type="text"
-              placeholder="Your Nano Wallet Address"
-              value={recipient}
-              onChange={(e) => setRecipient(e.target.value)}
-              className="address-input"
-            />
-            <input
-              type="number"
-              placeholder="Amount (XNO) - optional"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              step="0.000001"
-              min="0"
-            />
-            <input
-              type="text"
-              placeholder="Note (optional)"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
+            {qrType !== "personal" && (
+              <input
+                type="text"
+                placeholder="Your Nano Wallet Address"
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+                className="address-input"
+              />
+            )}
+            {qrType === "personal" && (
+              <input
+                type="text"
+                placeholder="Your Nano Wallet Address"
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+                className="address-input"
+              />
+            )}
+            {qrType === "personal" && (
+              <input
+                type="text"
+                placeholder="Display Name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+            )}
+            {qrType === "personal" && (
+              <input
+                type="text"
+                placeholder="Optional Note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            )}
+            {qrType === "dynamic" && (
+              <>
+                <input
+                  type="number"
+                  placeholder="Amount (XNO)"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  step="0.000001"
+                  min="0"
+                />
+                <input
+                  type="text"
+                  placeholder="Merchant Name"
+                  value={merchant}
+                  onChange={(e) => setMerchant(e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="Payment Destination"
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="Description"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="Reference"
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                />
+              </>
+            )}
+            {qrType === "merchant" && (
+              <>
+                <input
+                  type="text"
+                  placeholder="Merchant Name"
+                  value={merchant}
+                  onChange={(e) => setMerchant(e.target.value)}
+                />
+                <input
+                  type="text"
+                  placeholder="Payment Destination"
+                  value={destination}
+                  onChange={(e) => setDestination(e.target.value)}
+                />
+              </>
+            )}
+            {qrType === "static" && (
+              <p className="muted" style={{ textAlign: "center", padding: "8px" }}>
+                Static QR encodes wallet address only. No amount or details.
+              </p>
+            )}
           </form>
 
           <div className="receive-qr-wrapper">
-            <QRReceiveQR
-              walletAddress={recipient}
-              amount={amount}
-              note={note}
-            />
+            {qrType === "static" ? (
+              <QRReceiveQR walletAddress={recipient} amount="" note="" merchantName="" currency="" paymentDestination="" reference="" />
+            ) : qrType === "personal" ? (
+              <QRReceiveQR walletAddress={recipient} amount="" note={displayName ? `Pay to ${displayName}` : note} merchantName={displayName} currency="" paymentDestination="" reference="" />
+            ) : qrType === "merchant" ? (
+              <QRReceiveQR walletAddress={recipient} amount="" note="" merchantName={merchant} currency="" paymentDestination={destination} reference="" />
+            ) : (
+              <QRReceiveQR
+                walletAddress={recipient}
+                amount={amount}
+                note={note}
+                merchantName={merchant}
+                currency={currency}
+                paymentDestination={destination}
+                reference={reference}
+              />
+            )}
           </div>
         </div>
       )}

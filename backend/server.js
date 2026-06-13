@@ -21,6 +21,7 @@ import merchantSubscriptionRoutes from "./routes/merchantSubscription.js";
 import paymentsRoutes from "./routes/payments.js";
 import billingRoutes from "./routes/billing.js";
 import webhookRoutes from "./routes/webhook.js";
+import featureRequestRoutes from "./routes/featureRequests.js";
 import { startSubscriptionAutomation } from "./services/subscriptionAutomation.js";
 import { callRpc, getNodeHealth, RPC_NODES, testRpcNodes } from "./services/rpcClient.js";
 import walletQueue from "./services/walletQueue.js";
@@ -133,6 +134,7 @@ app.use("/merchant-subscription", merchantSubscriptionRoutes);
 app.use("/payments", paymentsRoutes);
 app.use("/billing", billingRoutes);
 app.use("/webhook", webhookRoutes);
+app.use("/feature-requests", featureRequestRoutes);
 
 walletQueue.startWorker();
 

@@ -6,6 +6,19 @@ import "./styles.css";
 import "./stitch/stitch.css";
 import "./responsive.css";
 
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+
+if ("connection" in navigator) {
+  const conn = navigator.connection;
+  if (conn?.saveData) {
+    document.documentElement.classList.add("save-data");
+  }
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>

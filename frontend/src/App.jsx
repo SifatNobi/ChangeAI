@@ -16,7 +16,11 @@ import {
   login,
   register,
   sendTransaction,
-  setToken
+  setToken,
+  getRecentPayments,
+  getFavoriteMerchants,
+  getSavedRecipients,
+  getPaymentTemplates
 } from "./api";
 
 import AppLayout from "./stitch/components/AppLayout";
@@ -25,6 +29,7 @@ import LoginScreen from "./stitch/screens/LoginScreen";
 import WaitlistScreen from "./stitch/screens/WaitlistScreen";
 import { QRPaymentScanner } from "./components/QRSystem";
 import AIAssistant from "./components/AIAssistant";
+import FeatureRequestCenter from "./components/FeatureRequestCenter";
 import { UserOnboarding, MerchantOnboarding } from "./components/OnboardingFlow";
 import ErrorBoundary from "./utils/errorBoundary";
 import { safeGetFromStorage, safeSetStorage, safeClearStorage } from "./utils/storage";
@@ -289,16 +294,16 @@ function App() {
 
         setToken(nextToken);
         cacheSession(nextToken);
+        setTokenState(nextToken);
+        justLoggedInRef.current = true;
 
-        const profileData = await fetchProfile(nextToken);
-        if (!profileData) {
-          throw new Error("Failed to load profile");
+        if (data?.user) {
+          cacheProfile({ user: data.user, role: data.user.role, token: nextToken });
         }
 
-        // Mark that we just logged in so boot effect skips loading
-        justLoggedInRef.current = true;
+        fetchProfile(nextToken).catch(() => {});
+
         setAuthStatus({ loading: false, error: "" });
-        setTokenState(nextToken);
         navigate(redirectTo || "/dashboard", { replace: true });
       } catch (err) {
         setAuthStatus({ loading: false, error: err?.message || "Authentication failed" });
@@ -572,6 +577,17 @@ function App() {
                 <LazyWrapper>
                   <ReceiveScreen profile={profile} onNavigate={navigate} />
                 </LazyWrapper>
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/feature-requests"
+          element={
+            <ProtectedRoute bootStatus={bootStatus} token={token}>
+              <AppLayout profile={profile} onLogout={logout}>
+                <FeatureRequestCenter token={token} profile={profile} />
               </AppLayout>
             </ProtectedRoute>
           }

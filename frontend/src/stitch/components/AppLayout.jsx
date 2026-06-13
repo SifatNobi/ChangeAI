@@ -118,6 +118,9 @@ export default function AppLayout({ profile, onLogout, children }) {
           <NavLink className="nav-link" to="/pricing" onClick={closeMenu}>
             <span className="nav-icon">💎</span> Pricing
           </NavLink>
+          <NavLink className="nav-link" to="/feature-requests" onClick={closeMenu}>
+            <span className="nav-icon">💡</span> Feature Requests
+          </NavLink>
           <button
             className="nav-link nav-link-action"
             onClick={(e) => {

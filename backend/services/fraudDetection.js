@@ -12,7 +12,13 @@ class FraudDetectionEngine {
       microTransactions: 10,
       timePattern: 10,
       deviceFingerprint: 15,
-      recipientRisk: 20
+      recipientRisk: 20,
+      missingMerchant: 15,
+      missingReference: 5,
+      missingDescription: 5,
+      duplicatePayment: 30,
+      suspiciousAmount: 25,
+      expiredQR: 40
     };
 
     this.thresholds = {
@@ -30,6 +36,11 @@ class FraudDetectionEngine {
     const {
       recipient,
       amount,
+      merchant,
+      reference,
+      description,
+      destination,
+      currency,
       direction = "outgoing"
     } = transactionData;
 
@@ -41,7 +52,9 @@ class FraudDetectionEngine {
       riskFactors: [],
       recommendations: [],
       requiresReview: false,
-      autoBlock: false
+      autoBlock: false,
+      checks: [],
+      category: "SAFE"
     };
 
     try {
@@ -78,7 +91,32 @@ class FraudDetectionEngine {
         }
       }
 
+      const merchantCheck = this.checkPaymentContext(transactionData);
+      analysis.riskFactors.push(...merchantCheck.factors);
+      analysis.riskScore += merchantCheck.score;
+
+      const duplicateCheck = await this.checkDuplicatePayment(userId, transactionData);
+      analysis.riskFactors.push(...duplicateCheck.factors);
+      analysis.riskScore += duplicateCheck.score;
+
+      analysis.checks = [
+        { label: "Merchant present", pass: !!merchant },
+        { label: "Amount present", pass: !!amount && parseFloat(amount) > 0 },
+        { label: "Reference present", pass: !!reference },
+        { label: "Description present", pass: !!description },
+        { label: "Wallet valid", pass: !!recipient && recipient.length >= 60 },
+        { label: "Payment context complete", pass: !!merchant && !!reference && !!description }
+      ];
+
+      if (!merchant) analysis.checks.push({ label: "Missing merchant name", pass: false });
+      if (!reference) analysis.checks.push({ label: "Missing reference", pass: false });
+
       analysis.riskScore = Math.min(analysis.riskScore, 100);
+
+      if (analysis.riskScore >= 70) analysis.category = "HIGH RISK";
+      else if (analysis.riskScore >= 40) analysis.category = "MEDIUM RISK";
+      else if (analysis.riskScore >= 20) analysis.category = "LOW RISK";
+      else analysis.category = "SAFE";
 
       analysis.requiresReview = analysis.riskScore >= this.thresholds.mediumRiskScore;
       analysis.autoBlock = analysis.riskScore >= this.thresholds.highRiskScore;
@@ -87,6 +125,7 @@ class FraudDetectionEngine {
         userId,
         amount,
         riskScore: analysis.riskScore,
+        category: analysis.category,
         requiresReview: analysis.requiresReview,
         autoBlock: analysis.autoBlock
       });
@@ -101,6 +140,93 @@ class FraudDetectionEngine {
         requiresReview: false
       };
     }
+  }
+
+  checkPaymentContext(transactionData) {
+    const factors = [];
+    let score = 0;
+    const { merchant, reference, description, amount } = transactionData;
+
+    if (!merchant || !merchant.trim()) {
+      factors.push({
+        factor: "missing_merchant",
+        description: "No merchant name provided",
+        severity: "medium"
+      });
+      score += this.riskWeights.missingMerchant;
+    }
+
+    if (!reference || !reference.trim()) {
+      factors.push({
+        factor: "missing_reference",
+        description: "No payment reference provided",
+        severity: "low"
+      });
+      score += this.riskWeights.missingReference;
+    }
+
+    if (!description || !description.trim()) {
+      factors.push({
+        factor: "missing_description",
+        description: "No payment description provided",
+        severity: "low"
+      });
+      score += this.riskWeights.missingDescription;
+    }
+
+    if (parseFloat(amount) > 1000) {
+      factors.push({
+        factor: "high_amount",
+        description: `Transaction amount ${amount} exceeds threshold`,
+        severity: "high"
+      });
+      score += this.riskWeights.suspiciousAmount;
+    }
+
+    return { factors, score };
+  }
+
+  async checkDuplicatePayment(userId, transactionData) {
+    const factors = [];
+    let score = 0;
+    const { recipient, amount, reference } = transactionData;
+
+    if (reference) {
+      const existing = await Transaction.findOne({
+        userId,
+        reference,
+        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+      });
+
+      if (existing) {
+        factors.push({
+          factor: "duplicate_reference",
+          description: "Duplicate payment reference detected within 24 hours",
+          severity: "high"
+        });
+        score += this.riskWeights.duplicatePayment;
+      }
+    }
+
+    if (recipient && amount) {
+      const sameAmount = await Transaction.countDocuments({
+        userId,
+        toAddress: recipient,
+        amount: parseFloat(amount),
+        createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) }
+      });
+
+      if (sameAmount >= 3) {
+        factors.push({
+          factor: "duplicate_amount_recipient",
+          description: `${sameAmount} identical payments to same recipient in last hour`,
+          severity: "high"
+        });
+        score += this.riskWeights.duplicatePayment;
+      }
+    }
+
+    return { factors, score };
   }
 
   async checkVelocity(userId) {
@@ -175,7 +301,6 @@ class FraudDetectionEngine {
   checkAmountAnomaly(userId, amount, user) {
     const factors = [];
     let score = 0;
-
     const avgTransactionSize = 100;
     const maxSingleTransaction = 5000;
 
@@ -228,7 +353,6 @@ class FraudDetectionEngine {
   async checkRecipientRisk(userId, recipient) {
     const factors = [];
     let score = 0;
-
     if (!recipient) return { factors, score };
 
     const recentToRecipient = await Transaction.countDocuments({
@@ -266,7 +390,6 @@ class FraudDetectionEngine {
     const factors = [];
     let score = 0;
     const hour = new Date().getHours();
-
     if (hour >= 0 && hour < 5) {
       factors.push({
         factor: "unusual_time",
@@ -275,7 +398,6 @@ class FraudDetectionEngine {
       });
       score += this.riskWeights.timePattern * 0.5;
     }
-
     return { factors, score };
   }
 
@@ -290,11 +412,9 @@ class FraudDetectionEngine {
     if (analysis.riskScore < this.thresholds.mediumRiskScore) {
       return "Transaction appears normal. No significant risk factors detected.";
     }
-
     const explanations = analysis.riskFactors
       .filter(f => f.severity !== "low")
       .map(f => f.description);
-
     return explanations.join("; ") || "Multiple risk factors detected.";
   }
 
@@ -306,7 +426,10 @@ class FraudDetectionEngine {
         action: "block",
         message: "Transaction blocked due to high risk score",
         requiresManualReview: true,
-        explanation: this.getRiskExplanation(analysis)
+        explanation: this.getRiskExplanation(analysis),
+        riskScore: analysis.riskScore,
+        category: analysis.category,
+        checks: analysis.checks
       };
     }
 
@@ -320,7 +443,10 @@ class FraudDetectionEngine {
           "Verify the amount is accurate",
           "Ensure you initiated this transaction"
         ],
-        explanation: this.getRiskExplanation(analysis)
+        explanation: this.getRiskExplanation(analysis),
+        riskScore: analysis.riskScore,
+        category: analysis.category,
+        checks: analysis.checks
       };
     }
 
@@ -328,7 +454,10 @@ class FraudDetectionEngine {
       action: "proceed",
       message: "Transaction appears legitimate",
       requiresConfirmation: false,
-      explanation: "All security checks passed."
+      explanation: "All security checks passed.",
+      riskScore: analysis.riskScore,
+      category: analysis.category,
+      checks: analysis.checks
     };
   }
 }

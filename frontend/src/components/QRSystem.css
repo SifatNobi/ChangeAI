@@ -363,6 +363,39 @@
   text-align: center;
 }
 
+/* QR Type Tabs */
+.qr-type-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.qr-type-btn {
+  flex: 1;
+  min-width: 80px;
+  padding: 10px 8px;
+  background: rgba(22, 22, 22, 0.8);
+  border: 1px solid rgba(84, 195, 255, 0.15);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.qr-type-btn.active {
+  background: linear-gradient(135deg, #0f2760, #1e6be0);
+  border-color: #54c3ff;
+  color: #fff;
+}
+
+.qr-type-btn:hover:not(.active) {
+  background: rgba(84, 195, 255, 0.1);
+  border-color: rgba(84, 195, 255, 0.3);
+}
+
 /* Mobile QR fixes */
 @media (max-width: 480px) {
   .qr-display-premium {
@@ -373,5 +406,11 @@
   }
   .qr-glow-ring {
     inset: -20px;
+  }
+  .qr-type-tabs {
+    flex-direction: column;
+  }
+  .qr-type-btn {
+    width: 100%;
   }
 }

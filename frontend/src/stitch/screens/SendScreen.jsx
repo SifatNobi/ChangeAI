@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation } from "react-router-dom";
-import { API_BASE_URL } from "../../api";
+import { API_BASE_URL, getRecentPayments, getFavoriteMerchants, getSavedRecipients, getPaymentTemplates } from "../../api";
 import { AIInsightCard, GoalProgress } from "../../components/RealtimeDashboard";
 import { FINA_AI_IMAGE } from "../../constants/branding";
 import "../../components/SendStyles.css";
@@ -56,6 +56,11 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   const [scannerLoading, setScannerLoading] = useState(false);
   const [paymentContext, setPaymentContext] = useState(null);
   const [smartWarnings, setSmartWarnings] = useState([]);
+  const [riskAnalysis, setRiskAnalysis] = useState(null);
+  const [recentPayments, setRecentPayments] = useState([]);
+  const [favoriteMerchants, setFavoriteMerchants] = useState([]);
+  const [savedRecipients, setSavedRecipients] = useState([]);
+  const [paymentTemplates, setPaymentTemplates] = useState([]);
   const [goals, setGoals] = useState(loadGoals);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [editingGoal, setEditingGoal] = useState(null);
@@ -67,6 +72,7 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   const statusRef = useRef(status);
   statusRef.current = status;
   const hasAutoSubmittedRef = useRef(false);
+  const inactivityTimerRef = useRef(null);
   
   const [txId, setTxId] = useState(null);
   const [confirmationTime, setConfirmationTime] = useState(0);
@@ -102,8 +108,12 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
       }
+      if (paymentContext) {
+        onClearContext?.();
+        clearSavedPaymentContext();
+      }
     };
-  }, [destroyScanner]);
+  }, [destroyScanner, paymentContext, onClearContext]);
 
   useEffect(() => {
     try {
@@ -112,6 +122,15 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       console.error("Failed to save goals:", e);
     }
   }, [goals]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("changeaipay_token");
+    if (!token) return;
+    getRecentPayments(token).then(d => d?.payments && setRecentPayments(d.payments.slice(0, 5))).catch(() => {});
+    getFavoriteMerchants(token).then(d => d?.merchants && setFavoriteMerchants(d.merchants)).catch(() => {});
+    getSavedRecipients(token).then(d => d?.recipients && setSavedRecipients(d.recipients)).catch(() => {});
+    getPaymentTemplates(token).then(d => d?.templates && setPaymentTemplates(d.templates)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const handleOpenGoals = () => {
@@ -206,6 +225,31 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   }, [form, paymentContext]);
 
   useEffect(() => {
+    if (paymentContext?.expiryTimestamp && Date.now() / 1000 > paymentContext.expiryTimestamp) {
+      handleClearPaymentContext();
+    }
+  }, [paymentContext?.expiryTimestamp]);
+
+  useEffect(() => {
+    if (!paymentContext) return;
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    inactivityTimerRef.current = setTimeout(() => {
+      handleClearPaymentContext();
+    }, 300000);
+    return () => {
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+    };
+  }, [paymentContext, form]);
+
+  useEffect(() => {
+    if (status.type === "success" || status.type === "error" || status.type === "action_required") {
+      if (paymentContext) {
+        setTimeout(() => handleClearPaymentContext(), 2000);
+      }
+    }
+  }, [status.type]);
+
+  useEffect(() => {
     const warnings = [];
     const amountValue = parseFloat(form.amount || "0");
     if (amountValue > 100) {
@@ -218,7 +262,25 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
       warnings.push("Merchant name missing. Please verify the recipient carefully.");
     }
     setSmartWarnings(warnings);
-  }, [form.amount, form.currency, form.merchant, form.recipient]);
+
+    const analysis = { riskScore: 0, category: "SAFE", checks: [], warnings: [] };
+    if (form.merchant) { analysis.checks.push({ label: "Merchant verified", pass: true }); }
+    if (form.amount && parseFloat(form.amount) > 0) { analysis.checks.push({ label: "Amount detected", pass: true }); }
+    if (form.reference) { analysis.checks.push({ label: "Reference detected", pass: true }); }
+    if (form.destination) { analysis.checks.push({ label: "Destination detected", pass: true }); }
+
+    if (amountValue > 1000) { analysis.riskScore += 40; }
+    if (!form.merchant && form.recipient) { analysis.riskScore += 15; }
+    if (!form.reference) { analysis.riskScore += 5; }
+    if (!form.destination) { analysis.riskScore += 5; }
+
+    if (analysis.riskScore >= 70) analysis.category = "HIGH RISK";
+    else if (analysis.riskScore >= 40) analysis.category = "MEDIUM RISK";
+    else if (analysis.riskScore >= 20) analysis.category = "LOW RISK";
+    else analysis.category = "SAFE";
+
+    setRiskAnalysis(analysis);
+  }, [form.amount, form.currency, form.merchant, form.recipient, form.reference, form.destination]);
 
   const stopPolling = useCallback(() => {
     if (pollIntervalRef.current) {
@@ -818,16 +880,101 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
               <span>Source</span>
               <strong>{paymentContext.source === "qr" ? "QR Scan" : "Manual"}</strong>
             </div>
-            <button type="button" className="ghost-button" onClick={handleClearPaymentContext}>
-              Clear scanned payment
-            </button>
           </div>
         )}
 
-        {smartWarnings.length > 0 && (
+        {paymentContext && riskAnalysis && (
+          <div className={`status ${riskAnalysis.category === "SAFE" ? "success" : riskAnalysis.category === "HIGH RISK" ? "error" : "warning"}`}>
+            <strong>AI Payment Risk Analysis</strong>
+            <div className="risk-score-bar">
+              <div className="risk-score-fill" style={{ width: `${Math.min(riskAnalysis.riskScore, 100)}%`, background: riskAnalysis.riskScore >= 70 ? "#ef4444" : riskAnalysis.riskScore >= 40 ? "#f59e0b" : riskAnalysis.riskScore >= 20 ? "#fb923c" : "#00c896" }} />
+            </div>
+            <p>Risk Score: {riskAnalysis.riskScore}/100 — {riskAnalysis.category}</p>
+            <div className="risk-checks">
+              {riskAnalysis.checks.map((check, i) => (
+                <span key={i} className={`risk-check ${check.pass ? "pass" : "fail"}`}>
+                  {check.pass ? "✓" : "✗"} {check.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {smartWarnings.length > 0 && !paymentContext && (
           <div className="status warning">
             <strong>Smart Review</strong>
             <p>{smartWarnings.join(" ")}</p>
+          </div>
+        )}
+
+        {recentPayments.length > 0 && (
+          <div className="recent-payments-section">
+            <h4>Recent Payments</h4>
+            {recentPayments.map((p, i) => (
+              <div key={i} className="payment-list-item" onClick={() => {
+                setForm(prev => ({
+                  ...prev,
+                  recipient: p.recipient || p.toAddress || "",
+                  amount: String(p.amount || ""),
+                  merchant: p.merchant || "",
+                  destination: p.destination || "",
+                  note: p.note || p.description || "",
+                  reference: p.reference || ""
+                }));
+              }}>
+                <div className="payment-info">
+                  <span className="payment-merchant">{p.merchant || p.recipient?.slice(0, 16) + "..." || "Unknown"}</span>
+                  <span className="payment-detail">{p.note || p.description || p.reference || ""}</span>
+                </div>
+                <span className="payment-amount">{p.amount} {p.currency || "XNO"}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {favoriteMerchants.length > 0 && (
+          <div className="favorites-section">
+            <h4>Favorite Merchants</h4>
+            {favoriteMerchants.map((m, i) => (
+              <div key={i} className="payment-list-item" onClick={() => {
+                setForm(prev => ({
+                  ...prev,
+                  recipient: m.recipient || m.walletAddress || "",
+                  merchant: m.name || m.merchant || "",
+                  destination: m.destination || m.recipient || ""
+                }));
+              }}>
+                <div className="payment-info">
+                  <span className="payment-merchant">{m.name || m.merchant}</span>
+                  <span className="payment-detail">{(m.recipient || m.walletAddress || "").slice(0, 20)}...</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {paymentTemplates.length > 0 && (
+          <div className="templates-section">
+            <h4>Payment Templates</h4>
+            {paymentTemplates.map((t, i) => (
+              <div key={i} className="payment-list-item" onClick={() => {
+                setForm(prev => ({
+                  ...prev,
+                  recipient: t.recipient || "",
+                  amount: String(t.amount || ""),
+                  currency: t.currency || "XNO",
+                  merchant: t.merchant || "",
+                  destination: t.destination || "",
+                  note: t.note || t.description || "",
+                  reference: t.reference || ""
+                }));
+              }}>
+                <div className="payment-info">
+                  <span className="payment-merchant">{t.name || t.merchant || "Template"}</span>
+                  <span className="payment-detail">{t.amount} {t.currency || "XNO"} - {t.note || t.description || ""}</span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

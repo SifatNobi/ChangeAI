@@ -1256,3 +1256,243 @@ main.page-shell {
     image-rendering: crisp-edges;
   }
 }
+
+/* ===== COMPREHENSIVE RESPONSIVE BREAKPOINTS ===== */
+
+/* 320px — Small phones */
+@media (max-width: 320px) {
+  html { font-size: 14px; }
+  .page-shell { padding: 8px; }
+  .card { padding: 12px; border-radius: 12px; }
+  .glass-card { border-radius: 12px; }
+  .primary-button { padding: 10px 16px; font-size: 13px; }
+  input, select, textarea { padding: 10px 12px; font-size: 13px; }
+  .topbar { padding: 8px 12px; }
+  .brand-title { font-size: 12px; }
+  .stats-grid { grid-template-columns: 1fr; }
+  .hero-copy h1 { font-size: 20px; }
+  .login-surface h2 { font-size: 16px; }
+}
+
+/* 375px — iPhone SE / small Android */
+@media (max-width: 375px) {
+  .page-shell { padding: 10px; }
+  .card { padding: 14px; }
+  .hero-copy h1 { font-size: 22px; }
+  .login-surface { padding: 16px 14px; }
+  .qr-display { width: min(240px, 75vw); height: min(240px, 75vw); }
+}
+
+/* 425px — Larger phones */
+@media (max-width: 425px) {
+  .auth-panel { gap: 16px; }
+  .auth-shell { padding: 16px 12px; }
+  .pricing-grid { gap: 12px; }
+  .pricing-card { padding: 20px 16px; }
+  .payment-field-group { grid-template-columns: 1fr; }
+  .preview-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .preview-row strong { max-width: 100%; text-align: left; word-break: break-all; }
+}
+
+/* 768px — Tablets portrait (already exists) */
+
+/* 1024px — Tablets landscape / small laptops */
+@media (max-width: 1024px) {
+  .dashboard-grid { grid-template-columns: 1fr 300px; }
+  .pricing-grid { grid-template-columns: repeat(2, 1fr); }
+  .auth-panel { grid-template-columns: 1fr; max-width: 500px; }
+}
+
+/* 1280px — Standard desktop */
+@media (min-width: 1280px) {
+  .page-shell { max-width: 1200px; }
+  .pricing-grid { grid-template-columns: repeat(3, 1fr); max-width: 1200px; margin: 0 auto; }
+  .dashboard-grid { grid-template-columns: 1fr 380px; }
+}
+
+/* 1440px — Large desktop */
+@media (min-width: 1440px) {
+  .page-shell { max-width: 1320px; }
+  html { font-size: 16px; }
+}
+
+/* 1920px — Full HD */
+@media (min-width: 1920px) {
+  .page-shell { max-width: 1600px; }
+  html { font-size: 17px; }
+}
+
+/* ===== WALLET ADDRESS WRAPPING ===== */
+.address-input,
+code,
+.preview-row strong,
+.receive-qr-address code,
+.qr-address,
+.address-preview {
+  word-break: break-all !important;
+  overflow-wrap: break-word !important;
+  hyphens: none;
+  white-space: pre-wrap;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+code, .mono-text {
+  word-break: break-all;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* ===== SAFE AREA SUPPORT ===== */
+@supports (padding: env(safe-area-inset-top)) {
+  .topbar {
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
+    padding-left: calc(24px + env(safe-area-inset-left, 0px));
+    padding-right: calc(24px + env(safe-area-inset-right, 0px));
+  }
+
+  .page-shell {
+    padding-left: calc(clamp(16px, 4vw, 24px) + env(safe-area-inset-left, 0px));
+    padding-right: calc(clamp(16px, 4vw, 24px) + env(safe-area-inset-right, 0px));
+    padding-bottom: calc(clamp(16px, 4vw, 24px) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .auth-shell {
+    padding-left: calc(24px + env(safe-area-inset-left, 0px));
+    padding-right: calc(24px + env(safe-area-inset-right, 0px));
+    padding-top: calc(40px + env(safe-area-inset-top, 0px));
+  }
+
+  .ai-assistant {
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    right: calc(24px + env(safe-area-inset-right, 0px));
+  }
+
+  .topnav-mobile {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .goal-modal-overlay {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@supports (padding: constant(safe-area-inset-top)) {
+  .topbar {
+    padding-top: calc(16px + constant(safe-area-inset-top, 0px));
+    padding-left: calc(24px + constant(safe-area-inset-left, 0px));
+    padding-right: calc(24px + constant(safe-area-inset-right, 0px));
+  }
+
+  .page-shell {
+    padding-left: calc(clamp(16px, 4vw, 24px) + constant(safe-area-inset-left, 0px));
+    padding-right: calc(clamp(16px, 4vw, 24px) + constant(safe-area-inset-right, 0px));
+    padding-bottom: calc(clamp(16px, 4vw, 24px) + constant(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ===== BUTTON FULL WIDTH ON MOBILE ===== */
+@media (max-width: 768px) {
+  .primary-button,
+  .ghost-button,
+  .action-btn {
+    width: 100%;
+  }
+
+  .manual-fallback-actions {
+    flex-direction: column;
+  }
+
+  .manual-fallback-actions button {
+    width: 100%;
+  }
+}
+
+@media (min-width: 769px) {
+  .primary-button:not(.auth-cta):not(.scan-btn):not(.fr-submit-btn) {
+    width: auto;
+    min-width: 160px;
+  }
+}
+
+/* ===== FORM STACKING ===== */
+@media (max-width: 768px) {
+  .payment-field-group,
+  .form-row,
+  .dual-input {
+    grid-template-columns: 1fr !important;
+  }
+
+  .receive-form,
+  .payment-form {
+    gap: 8px;
+  }
+}
+
+/* ===== CARD AUTO RESIZE ===== */
+.card, .glass-card {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* ===== TEXT DYNAMIC SCALING ===== */
+h1 { font-size: clamp(22px, 5vw, 36px); }
+h2 { font-size: clamp(18px, 4vw, 28px); }
+h3 { font-size: clamp(16px, 3vw, 24px); }
+p, .muted, label { font-size: clamp(13px, 2.5vw, 16px); }
+
+/* ===== VERTICAL FORM STACKING ON MOBILE ===== */
+@media (max-width: 480px) {
+  .fr-type-grid { grid-template-columns: 1fr; }
+  .fr-header { flex-direction: column; }
+  .fr-controls { flex-direction: column; align-items: flex-start; }
+  .fr-sort-tabs { width: 100%; overflow-x: auto; }
+  .fr-submit-actions { flex-direction: column-reverse; }
+  .fr-submit-actions button { width: 100%; }
+  .receive-form input { font-size: 14px; }
+}
+
+/* ===== NO HORIZONTAL SCROLLING SAFEGUARD ===== */
+*, *::before, *::after {
+  max-width: 100%;
+}
+
+pre, code, .address-input {
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
+img, video, canvas, svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ===== KEYBOARD NAVIGATION ===== */
+:focus-visible {
+  outline: 2px solid #54c3ff;
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #54c3ff;
+  outline-offset: 2px;
+}
+
+/* ===== SCREEN READER SUPPORT ===== */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
