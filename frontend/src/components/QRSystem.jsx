@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 import QRCode from "qrcode";
+import { parsePaymentQR, formatParsedQR } from "../utils/parsePaymentQR";
 import "./QRSystem.css";
 
-const NANO_ADDRESS_REGEX = /^nano_[13][13456789abcdefghijkmnopqrstuwxyz]{59}$/i;
 const SCAN_COOLDOWN = 2000;
 const DUPLICATE_SCAN_WINDOW = 10000;
 const CAMERA_PERMISSION_TIMEOUT = 15000;
@@ -36,6 +36,7 @@ export function useQRScanner({ onScan, onError }) {
 
   const validateNanoAddress = useCallback((text) => {
     const cleaned = String(text || "").trim().replace(/^nano:/i, "").split("?")[0];
+    const NANO_ADDRESS_REGEX = /^nano_[13][13456789abcdefghijkmnopqrstuwxyz]{59}$/i;
     if (NANO_ADDRESS_REGEX.test(cleaned)) {
       return { valid: true, address: cleaned, type: "nano_address" };
     }
@@ -64,113 +65,51 @@ export function useQRScanner({ onScan, onError }) {
   }, []);
 
   const parsePaymentPayload = useCallback((text) => {
+    const parsed = parsePaymentQR(text);
     const rawValue = String(text || "").trim();
-    if (!rawValue) {
-      return { valid: false, rawValue: "" };
-    }
 
     const payload = {
-      valid: false,
+      valid: parsed.valid,
       rawValue,
-      type: null,
-      address: null,
-      recipient: null,
-      destination: null,
-      amount: null,
-      currency: "XNO",
-      merchant: "",
-      merchantName: "",
+      type: parsed.valid ? "json_payment" : null,
+      address: parsed.recipientWallet,
+      recipient: parsed.recipientWallet,
+      destination: parsed.paymentDestination || parsed.recipientWallet,
+      amount: parsed.amount || null,
+      currency: parsed.currency || "XNO",
+      merchant: parsed.merchantName,
+      merchantName: parsed.merchantName,
       merchantId: "",
       merchant_id: "",
-      note: "",
-      description: "",
-      reference: "",
-      paymentDestination: "",
-      timestamp: null,
-      expiryTimestamp: null,
-      qrVersion: null,
-      expired: false,
+      note: parsed.description,
+      description: parsed.description,
+      reference: parsed.reference,
+      paymentDestination: parsed.paymentDestination,
+      timestamp: parsed.timestamp || null,
+      expiryTimestamp: parsed.expiryTimestamp || null,
+      qrVersion: parsed.qrVersion || null,
+      expired: parsed.expired,
+      missingFields: parsed.missingFields,
+      errors: parsed.errors,
       metadata: {}
     };
 
-    try {
-      const jsonPayload = JSON.parse(rawValue);
-      if (jsonPayload && typeof jsonPayload === "object") {
-        payload.type = jsonPayload.type || jsonPayload.source || "json_payment";
-        payload.address = jsonPayload.recipientWallet || jsonPayload.recipient || jsonPayload.address || jsonPayload.wallet || jsonPayload.destination;
-        payload.recipient = payload.address;
-        payload.destination = jsonPayload.paymentDestination || jsonPayload.destination || payload.address;
-        payload.amount = jsonPayload.amount ?? jsonPayload.value ?? jsonPayload.total ?? null;
-        payload.currency = jsonPayload.currency || jsonPayload.currency_code || jsonPayload.asset || payload.currency;
-        payload.merchant = jsonPayload.merchantName || jsonPayload.merchant || jsonPayload.payee || jsonPayload.business || "";
-        payload.merchantName = jsonPayload.merchantName || payload.merchant;
-        payload.merchantId = jsonPayload.merchant_id || jsonPayload.merchantId || "";
-        payload.note = jsonPayload.description || jsonPayload.note || jsonPayload.message || "";
-        payload.description = jsonPayload.description || payload.note;
-        payload.reference = jsonPayload.reference || jsonPayload.memo || "";
-        payload.paymentDestination = jsonPayload.paymentDestination || jsonPayload.destination || payload.destination;
-        payload.timestamp = jsonPayload.timestamp || null;
-        payload.expiryTimestamp = jsonPayload.expiryTimestamp || null;
-        payload.qrVersion = jsonPayload.qrVersion || null;
-        payload.metadata = jsonPayload.metadata || {};
-
-        if (payload.expiryTimestamp && Date.now() / 1000 > payload.expiryTimestamp) {
-          payload.expired = true;
-          payload.valid = false;
-          return payload;
-        }
-      }
-    } catch {
-      // not JSON, continue
+    if (payload.expired) {
+      payload.valid = false;
     }
 
-    if (!payload.address) {
-      try {
-        let parseable = rawValue;
-        if (/^[a-zA-Z0-9_]+:[^/]/.test(rawValue) && !rawValue.includes("//")) {
-          parseable = rawValue.replace(/^([^:]+):/, "$1://");
-        }
-        const url = new URL(parseable);
-        const params = url.searchParams;
-        if (url.protocol === "nano:") {
-          payload.address = url.pathname.replace(/^\/+/, "");
-        }
-        payload.destination = payload.destination || payload.address;
-        payload.address = payload.address || params.get("address") || params.get("recipient") || params.get("wallet") || params.get("to") || params.get("destination");
-        payload.amount = payload.amount ?? (params.get("amount") || params.get("value") || params.get("total"));
-        payload.currency = params.get("currency") || params.get("asset") || payload.currency;
-        payload.merchant = payload.merchant || params.get("merchant") || params.get("label") || params.get("payee") || "";
-        payload.merchantId = payload.merchantId || params.get("merchant_id") || params.get("merchantId") || params.get("merchant-id") || "";
-        payload.note = payload.note || params.get("note") || params.get("message") || params.get("description") || "";
-        payload.reference = payload.reference || params.get("reference") || params.get("memo") || "";
-
-        const metadata = {};
-        params.forEach((value, key) => {
-          if (!["address", "recipient", "wallet", "to", "destination", "amount", "value", "total", "currency", "asset", "merchant", "label", "payee", "merchant_id", "merchantId", "merchant-id", "note", "message", "description", "reference", "memo"].includes(key)) {
-            metadata[key] = value;
-          }
-        });
-        payload.metadata = { ...payload.metadata, ...metadata };
-      } catch {
-        // ignore invalid URL formats
-      }
-    }
-
-    if (!payload.address) {
-      const validation = validateNanoAddress(rawValue);
-      if (validation.valid) {
-        payload.address = validation.address;
-        payload.recipient = validation.address;
-        payload.destination = validation.address;
-        payload.type = validation.type;
-      }
+    if (!payload.address && validateNanoAddress(rawValue).valid) {
+      const v = validateNanoAddress(rawValue);
+      payload.address = v.address;
+      payload.recipient = v.address;
+      payload.valid = true;
     }
 
     if (payload.address) {
-      payload.valid = true;
       payload.recipient = payload.recipient || payload.address;
       payload.destination = payload.destination || payload.address;
       payload.type = payload.type || "payment_payload";
+      payload.valid = true;
     }
 
     return payload;
@@ -205,31 +144,28 @@ export function useQRScanner({ onScan, onError }) {
       return;
     }
 
+    const formatted = formatParsedQR(parsed);
+    const scanResult = {
+      ...formatted,
+      recipient: parsed.recipient || parsed.address,
+      destination: parsed.paymentDestination || parsed.destination || parsed.recipient || parsed.address,
+      merchant: parsed.merchant || parsed.merchantName,
+      merchantName: parsed.merchantName,
+      merchantId: parsed.merchantId || "",
+      note: parsed.description,
+      amount: parsed.amount != null ? parseFloat(parsed.amount) : 0,
+      rawValue: parsed.rawValue,
+      source: "qr",
+      payloadType: parsed.type,
+      metadata: parsed.metadata || {},
+    };
+
     setLastScanned({
-      ...parsed,
+      ...scanResult,
       timestamp: new Date().toISOString()
     });
 
-    onScanRef.current?.({
-      recipient: parsed.recipient,
-      destination: parsed.destination || parsed.paymentDestination,
-      amount: parsed.amount != null ? parseFloat(parsed.amount) : 0,
-      currency: parsed.currency || "XNO",
-      merchant: parsed.merchant,
-      merchantName: parsed.merchantName,
-      merchantId: parsed.merchantId,
-      note: parsed.note,
-      description: parsed.description,
-      reference: parsed.reference,
-      paymentDestination: parsed.paymentDestination,
-      timestamp: parsed.timestamp,
-      expiryTimestamp: parsed.expiryTimestamp,
-      qrVersion: parsed.qrVersion,
-      metadata: parsed.metadata,
-      rawValue: parsed.rawValue,
-      source: "qr",
-      payloadType: parsed.type
-    });
+    onScanRef.current?.(scanResult);
   }, [parsePaymentPayload]);
 
   const startScanning = useCallback(async (elementId) => {
@@ -462,14 +398,14 @@ export function QRReceiveQR({ walletAddress, amount, note, merchantName, currenc
   const buildPaymentPayload = useCallback(() => {
     const payload = {
       merchantName: merchantName || "",
-      recipientWallet: walletAddress.trim(),
-      amount: String(amount || "0").trim(),
+      recipientWallet: (walletAddress || "").trim(),
+      amount: String(amount || "").trim() || "0",
       currency: currency || "XNO",
       paymentDestination: paymentDestination || "",
       description: note || "",
       reference: reference || "",
       timestamp: Math.floor(Date.now() / 1000),
-      expiryTimestamp: Math.floor(Date.now() / 1000) + 300,
+      expiryTimestamp: Math.floor(Date.now() / 1000) + 3600,
       qrVersion: "1.0"
     };
     return JSON.stringify(payload);
@@ -587,13 +523,14 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
     requestPermissionRetry
   } = useQRScanner({
     onScan: async (data) => {
+      const parsedQR = parsePaymentQR(data.rawValue || JSON.stringify(data));
       setScannedData(data);
-      setRecipient(data.recipient || data.destination || "");
+      setRecipient(data.recipient || data.recipientWallet || data.destination || "");
       setAmount(data.amount != null ? String(data.amount) : "");
       setCurrency(data.currency || "XNO");
       setMerchant(data.merchant || data.merchantName || "");
       setMerchantId(data.merchantId || "");
-      setDestination(data.paymentDestination || data.destination || data.recipient || "");
+      setDestination(data.paymentDestination || data.destination || data.recipient || data.recipientWallet || "");
       setNote(data.description || data.note || "");
       setReference(data.reference || "");
       setIsScanning(false);
@@ -601,23 +538,23 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
       setError(null);
 
       onPaymentReadyRef.current?.({
-        recipient: data.recipient,
+        recipient: data.recipient || data.recipientWallet,
         amount: data.amount,
         currency: data.currency,
-        merchant: data.merchant || data.merchantName,
-        merchantName: data.merchantName,
-        merchantId: data.merchantId,
-        destination: data.paymentDestination || data.destination,
-        note: data.description || data.note,
-        description: data.description,
-        reference: data.reference,
-        paymentDestination: data.paymentDestination,
-        timestamp: data.timestamp,
-        expiryTimestamp: data.expiryTimestamp,
-        qrVersion: data.qrVersion,
-        metadata: data.metadata,
-        rawValue: data.rawValue,
-        source: data.source,
+        merchant: data.merchant || data.merchantName || "",
+        merchantName: data.merchantName || data.merchant || "",
+        merchantId: data.merchantId || "",
+        destination: data.paymentDestination || data.destination || data.recipient || data.recipientWallet || "",
+        note: data.description || data.note || "",
+        description: data.description || "",
+        reference: data.reference || "",
+        paymentDestination: data.paymentDestination || data.destination || "",
+        timestamp: data.timestamp || 0,
+        expiryTimestamp: data.expiryTimestamp || 0,
+        qrVersion: data.qrVersion || "1.0",
+        metadata: data.metadata || {},
+        rawValue: data.rawValue || "",
+        source: "qr",
         scannedFromQR: true
       });
     },
@@ -651,12 +588,16 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
 
     onPaymentReady?.({
       recipient: validation.address,
+      recipientWallet: validation.address,
       amount: parseFloat(amount) || 0,
       currency,
-      merchant,
+      merchant: merchant || "",
+      merchantName: merchant || "",
       destination: destination || validation.address,
-      note,
-      reference,
+      paymentDestination: destination || "",
+      note: note || "",
+      description: note || "",
+      reference: reference || "",
       metadata: {},
       rawValue: recipient,
       source: "manual",
@@ -799,9 +740,9 @@ export function QRPaymentScanner({ onPaymentReady, onCancel, walletAddress }) {
             {qrType === "static" ? (
               <QRReceiveQR walletAddress={recipient} amount="" note="" merchantName="" currency="" paymentDestination="" reference="" />
             ) : qrType === "personal" ? (
-              <QRReceiveQR walletAddress={recipient} amount="" note={displayName ? `Pay to ${displayName}` : note} merchantName={displayName} currency="" paymentDestination="" reference="" />
+              <QRReceiveQR walletAddress={recipient} amount="" note={displayName ? `Pay to ${displayName}` : note} merchantName={displayName || merchant} currency="" paymentDestination={destination} reference="" />
             ) : qrType === "merchant" ? (
-              <QRReceiveQR walletAddress={recipient} amount="" note="" merchantName={merchant} currency="" paymentDestination={destination} reference="" />
+              <QRReceiveQR walletAddress={recipient} amount="" note={note} merchantName={merchant} currency={currency} paymentDestination={destination} reference={reference} />
             ) : (
               <QRReceiveQR
                 walletAddress={recipient}

@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { API_BASE_URL, getRecentPayments, getFavoriteMerchants, getSavedRecipients, getPaymentTemplates } from "../../api";
 import { AIInsightCard, GoalProgress } from "../../components/RealtimeDashboard";
 import { FINA_AI_IMAGE } from "../../constants/branding";
+import { parsePaymentQR, formatParsedQR } from "../../utils/parsePaymentQR";
 import "../../components/SendStyles.css";
 
 const PAYMENT_STORAGE_KEY = "changeaipay_payment_context";
@@ -103,7 +104,13 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   }, [stopAllMediaTracks]);
 
   useEffect(() => {
+    const handleBeforeUnload = () => {
+      clearSavedPaymentContext();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
     return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       destroyScanner();
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
@@ -250,37 +257,48 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   }, [status.type]);
 
   useEffect(() => {
+    const data = paymentContext || form;
+    const merchantName = data.merchantName || data.merchant || "";
+    const amountValue = parseFloat(data.amount || "0");
+    const reference = data.reference || "";
+    const description = data.description || data.note || "";
+    const destination = data.paymentDestination || data.destination || "";
+
     const warnings = [];
-    const amountValue = parseFloat(form.amount || "0");
     if (amountValue > 100) {
       warnings.push("High-value transfer detected. Confirm merchant identity before sending.");
     }
-    if (form.currency && form.currency !== "XNO") {
+    if (data.currency && data.currency !== "XNO") {
       warnings.push("This payment uses a non-XNO currency. FX conversion may apply.");
     }
-    if (form.recipient && !form.merchant) {
+    if (data.recipient && !merchantName) {
       warnings.push("Merchant name missing. Please verify the recipient carefully.");
     }
     setSmartWarnings(warnings);
 
-    const analysis = { riskScore: 0, category: "SAFE", checks: [], warnings: [] };
-    if (form.merchant) { analysis.checks.push({ label: "Merchant verified", pass: true }); }
-    if (form.amount && parseFloat(form.amount) > 0) { analysis.checks.push({ label: "Amount detected", pass: true }); }
-    if (form.reference) { analysis.checks.push({ label: "Reference detected", pass: true }); }
-    if (form.destination) { analysis.checks.push({ label: "Destination detected", pass: true }); }
+    const analysis = { riskScore: 0, category: "SAFE", checks: [] };
+    if (merchantName) { analysis.checks.push({ label: "Merchant verified", pass: true }); }
+    if (amountValue > 0) { analysis.checks.push({ label: "Amount detected", pass: true }); }
+    if (data.recipient && data.recipient.length >= 60) { analysis.checks.push({ label: "Wallet valid", pass: true }); }
+    if (reference) { analysis.checks.push({ label: "Reference present", pass: true }); }
+    if (description) { analysis.checks.push({ label: "Description present", pass: true }); }
+    if (destination) { analysis.checks.push({ label: "Payment destination present", pass: true }); }
 
     if (amountValue > 1000) { analysis.riskScore += 40; }
-    if (!form.merchant && form.recipient) { analysis.riskScore += 15; }
-    if (!form.reference) { analysis.riskScore += 5; }
-    if (!form.destination) { analysis.riskScore += 5; }
+    if (!merchantName && data.recipient) { analysis.riskScore += 15; }
+    if (!reference) { analysis.riskScore += 5; }
+    if (!description) { analysis.riskScore += 5; }
+    if (!destination) { analysis.riskScore += 5; }
 
-    if (analysis.riskScore >= 70) analysis.category = "HIGH RISK";
-    else if (analysis.riskScore >= 40) analysis.category = "MEDIUM RISK";
-    else if (analysis.riskScore >= 20) analysis.category = "LOW RISK";
+    analysis.riskScore = Math.min(analysis.riskScore, 100);
+
+    if (analysis.riskScore >= 70) analysis.category = "HIGH_RISK";
+    else if (analysis.riskScore >= 40) analysis.category = "MEDIUM_RISK";
+    else if (analysis.riskScore >= 20) analysis.category = "LOW_RISK";
     else analysis.category = "SAFE";
 
     setRiskAnalysis(analysis);
-  }, [form.amount, form.currency, form.merchant, form.recipient, form.reference, form.destination]);
+  }, [paymentContext, form.amount, form.currency, form.merchant, form.recipient, form.reference, form.destination]);
 
   const stopPolling = useCallback(() => {
     if (pollIntervalRef.current) {
@@ -502,52 +520,22 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
   }, [form, paymentContext, sendTransaction, onClearContext]);
 
   function normalizeScannedText(value) {
-    const text = String(value || "").trim();
-    if (!text) return { recipient: "", amount: "", note: "", merchant: "" };
+    const parsed = parsePaymentQR(value);
+    const formatted = formatParsedQR(parsed);
 
-    let recipient = "";
-    let amount = "";
-    let note = "";
-    let merchant = "";
-
-    try {
-      if (text.startsWith("nano:")) {
-        const uri = new URL(text);
-        recipient = uri.pathname.replace(/^\/+/, "");
-        amount = uri.searchParams.get("amount") || "";
-        note = uri.searchParams.get("note") || uri.searchParams.get("message") || "";
-        merchant = uri.searchParams.get("merchant") || uri.searchParams.get("label") || "";
-        if (recipient) return { recipient, amount, note, merchant };
-      }
-    } catch {}
-
-    try {
-      const jsonPayload = JSON.parse(text);
-      if (jsonPayload && typeof jsonPayload === "object") {
-        recipient = jsonPayload.recipient || jsonPayload.address || jsonPayload.wallet || jsonPayload.destination || "";
-        amount = jsonPayload.amount != null ? String(jsonPayload.amount) : "";
-        note = jsonPayload.note || jsonPayload.message || jsonPayload.description || "";
-        merchant = jsonPayload.merchant || jsonPayload.merchantName || jsonPayload.payee || jsonPayload.business || "";
-        if (recipient) return { recipient, amount, note, merchant };
-      }
-    } catch {}
-
-    try {
-      if (text.includes("?")) {
-        const [base, query] = text.split("?");
-        const params = new URLSearchParams(query);
-        recipient = params.get("address") || params.get("recipient") || params.get("wallet") || params.get("to") || base;
-        amount = params.get("amount") || params.get("value") || "";
-        note = params.get("note") || params.get("message") || "";
-        merchant = params.get("merchant") || params.get("label") || "";
-        if (recipient) return { recipient, amount, note, merchant };
-      }
-    } catch {}
-
-    const walletMatch = text.match(/(nano_[13][13456789abcdefghijkmnopqrstuwxyz]{59})/i);
-    if (walletMatch) return { recipient: walletMatch[1], amount: "", note: "", merchant: "" };
-
-    return { recipient: text, amount: "", note: "", merchant: "" };
+    return {
+      recipient: formatted.recipientWallet,
+      amount: formatted.amount,
+      note: formatted.description,
+      merchant: formatted.merchantName,
+      description: formatted.description,
+      reference: formatted.reference,
+      destination: formatted.paymentDestination || formatted.recipientWallet,
+      currency: formatted.currency,
+      expired: parsed.expired,
+      errors: parsed.errors,
+      missingFields: parsed.missingFields
+    };
   }
 
   const sendTxRef = useRef(sendTransaction);
@@ -585,19 +573,50 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
         if (hasAutoSubmittedRef.current) return;
         hasAutoSubmittedRef.current = true;
 
-        const { recipient, amount, note, merchant } = normalizeScannedText(decodedText);
-        if (!recipient) {
+        const parsed = parsePaymentQR(decodedText);
+        const formatted = formatParsedQR(parsed);
+
+        if (parsed.expired) {
+          setScanError("This payment request has expired.");
+          handleClearPaymentContext();
+          hasAutoSubmittedRef.current = false;
+          return;
+        }
+
+        if (!parsed.valid && !parsed.recipientWallet) {
           setScanError("Scanned QR is not a valid Nano address or payment payload.");
           hasAutoSubmittedRef.current = false;
           return;
         }
 
+        const paymentReady = {
+          recipient: formatted.recipientWallet,
+          recipientWallet: formatted.recipientWallet,
+          amount: formatted.amount,
+          currency: formatted.currency,
+          merchant: formatted.merchantName,
+          merchantName: formatted.merchantName,
+          destination: formatted.paymentDestination || formatted.recipientWallet,
+          paymentDestination: formatted.paymentDestination,
+          note: formatted.description,
+          description: formatted.description,
+          reference: formatted.reference,
+          timestamp: formatted.timestamp,
+          expiryTimestamp: formatted.expiryTimestamp,
+          qrVersion: formatted.qrVersion,
+          source: "qr",
+          scannedFromQR: true
+        };
+
         setForm((state) => ({
           ...state,
-          recipient,
-          amount: amount || state.amount,
-          note: note || state.note,
-          merchant: merchant || state.merchant
+          recipient: formatted.recipientWallet,
+          amount: formatted.amount || state.amount,
+          currency: formatted.currency || state.currency,
+          merchant: formatted.merchantName || state.merchant,
+          destination: formatted.paymentDestination || formatted.recipientWallet || state.destination,
+          note: formatted.description || state.note,
+          reference: formatted.reference || state.reference,
         }));
         setStatus({ type: "success", message: "QR scanned. Processing payment...", txHash: null });
         await stopScanner();
@@ -605,13 +624,13 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
         try {
           setLoading(true);
           const result = await sendTxRef.current({
-            recipient,
-            amount: parseFloat(amount) || 0,
-            currency: "XNO",
-            merchant: merchant || "",
-            destination: recipient,
-            note: note || "",
-            reference: "",
+            recipient: formatted.recipientWallet,
+            amount: parseFloat(formatted.amount) || 0,
+            currency: formatted.currency || "XNO",
+            merchant: formatted.merchantName || "",
+            destination: formatted.paymentDestination || formatted.recipientWallet,
+            note: formatted.description || "",
+            reference: formatted.reference || "",
             metadata: {}
           });
 
@@ -813,6 +832,8 @@ export default function SendScreen({ sendTransaction, paymentContext: appPayment
     onClearContext?.();
     setForm({ recipient: "", amount: "", currency: "XNO", merchant: "", destination: "", note: "", reference: "" });
     setStatus({ type: "idle", message: "", txHash: null });
+    setSmartWarnings([]);
+    setRiskAnalysis(null);
   }, [onClearContext]);
 
   return (

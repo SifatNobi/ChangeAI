@@ -26,8 +26,15 @@ const featureRequestSchema = new mongoose.Schema({
   adminRespondedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
+featureRequestSchema.add({
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date, default: null },
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
+});
+
 featureRequestSchema.index({ votes: -1 });
 featureRequestSchema.index({ createdAt: -1 });
 featureRequestSchema.index({ status: 1 });
+featureRequestSchema.index({ isDeleted: 1 });
 
 export default mongoose.model('FeatureRequest', featureRequestSchema);

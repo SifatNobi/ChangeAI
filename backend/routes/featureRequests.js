@@ -4,10 +4,15 @@ import { authMiddleware, adminMiddleware } from "../middleware/security.js";
 
 const router = Router();
 
+function sanitize(str) {
+  if (typeof str !== "string") return str;
+  return str.replace(/[<>]/g, "").trim();
+}
+
 router.get("/", authMiddleware, async (req, res) => {
   try {
     const { sort = "votes", type = null, page = 1, limit = 20 } = req.query;
-    const query = {};
+    const query = { isDeleted: false };
     if (type) query.type = type;
 
     const sortOptions = {};
@@ -41,6 +46,15 @@ router.get("/", authMiddleware, async (req, res) => {
   }
 });
 
+router.get("/count", authMiddleware, async (req, res) => {
+  try {
+    const count = await FeatureRequest.countDocuments({ isDeleted: false });
+    res.json({ count });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post("/", authMiddleware, async (req, res) => {
   try {
     const { type, title, description } = req.body;
@@ -51,8 +65,8 @@ router.post("/", authMiddleware, async (req, res) => {
     const request = await FeatureRequest.create({
       userId: req.user._id,
       type,
-      title: title.trim(),
-      description: description.trim()
+      title: sanitize(title),
+      description: sanitize(description)
     });
 
     res.status(201).json({ request });
@@ -68,7 +82,7 @@ router.post("/:id/vote", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Vote value must be 1 or -1" });
     }
 
-    const request = await FeatureRequest.findById(req.params.id);
+    const request = await FeatureRequest.findOne({ _id: req.params.id, isDeleted: false });
     if (!request) {
       return res.status(404).json({ error: "Request not found" });
     }
@@ -112,17 +126,80 @@ router.post("/:id/respond", authMiddleware, adminMiddleware, async (req, res) =>
     const update = {};
     if (status) update.status = status;
     if (adminResponse) {
-      update.adminResponse = adminResponse;
+      update.adminResponse = sanitize(adminResponse);
       update.adminRespondedAt = new Date();
       update.adminRespondedBy = req.user._id;
     }
 
-    const request = await FeatureRequest.findByIdAndUpdate(req.params.id, update, { new: true });
+    const request = await FeatureRequest.findOneAndUpdate(
+      { _id: req.params.id, isDeleted: false },
+      update,
+      { new: true }
+    );
     if (!request) {
       return res.status(404).json({ error: "Request not found" });
     }
 
     res.json({ request });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function canDeleteFeatureRequest(feature, currentUser) {
+  if (!feature || !currentUser) return false;
+  if (feature.userId?.toString() === currentUser._id?.toString()) return true;
+  if (currentUser.role === "admin") return true;
+  return false;
+}
+
+router.post("/:id/delete", authMiddleware, async (req, res) => {
+  try {
+    const request = await FeatureRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ error: "Request not found" });
+    }
+
+    if (!canDeleteFeatureRequest(request, req.user)) {
+      return res.status(403).json({ error: "Only the creator or an admin can delete this request" });
+    }
+
+    if (request.isDeleted) {
+      return res.status(400).json({ error: "Request is already deleted" });
+    }
+
+    request.isDeleted = true;
+    request.deletedAt = new Date();
+    request.deletedBy = req.user._id;
+    await request.save();
+
+    res.json({ success: true, message: "Request deleted" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/:id/restore", authMiddleware, async (req, res) => {
+  try {
+    const request = await FeatureRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ error: "Request not found" });
+    }
+
+    if (!canDeleteFeatureRequest(request, req.user)) {
+      return res.status(403).json({ error: "Only the creator or an admin can restore this request" });
+    }
+
+    if (!request.isDeleted) {
+      return res.status(400).json({ error: "Request is not deleted" });
+    }
+
+    request.isDeleted = false;
+    request.deletedAt = null;
+    request.deletedBy = null;
+    await request.save();
+
+    res.json({ success: true, message: "Request restored", request });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

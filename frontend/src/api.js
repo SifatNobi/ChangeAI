@@ -171,6 +171,24 @@ export async function respondToFeatureRequest(token, requestId, { status, adminR
   });
 }
 
+export async function deleteFeatureRequest(token, requestId) {
+  return apiRequest(`/feature-requests/${requestId}/delete`, {
+    method: "POST",
+    token
+  });
+}
+
+export async function restoreFeatureRequest(token, requestId) {
+  return apiRequest(`/feature-requests/${requestId}/restore`, {
+    method: "POST",
+    token
+  });
+}
+
+export async function getFeatureRequestCount(token) {
+  return apiRequest("/feature-requests/count", { token, useCache: true });
+}
+
 // ===== Recent Payments =====
 export async function getRecentPayments(token) {
   return apiRequest("/payments/recent", { token, useCache: true });

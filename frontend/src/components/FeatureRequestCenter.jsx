@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   getFeatureRequests,
   createFeatureRequest,
-  voteFeatureRequest
+  voteFeatureRequest,
+  deleteFeatureRequest,
+  restoreFeatureRequest
 } from "../api";
 import "./FeatureRequestCenter.css";
 
@@ -54,10 +56,17 @@ function TypeBadge({ type }) {
   );
 }
 
-function RequestCard({ request, token, onVote }) {
+function RequestCard({ request, token, currentUserId, currentUserRole, onVote, onDelete, onRestore }) {
   const [voting, setVoting] = useState(false);
   const [localVotes, setLocalVotes] = useState(request.votes || 0);
   const [userVote, setUserVote] = useState(request.userVote || 0);
+  const [deleting, setDeleting] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+
+  const canDelete = useMemo(() => {
+    if (!currentUserId) return false;
+    return request.userId?._id === currentUserId || currentUserRole === "admin";
+  }, [currentUserId, currentUserRole, request.userId]);
 
   const handleVote = useCallback(async (value) => {
     if (!token || voting) return;
@@ -73,6 +82,32 @@ function RequestCard({ request, token, onVote }) {
       setVoting(false);
     }
   }, [token, request._id, voting, onVote]);
+
+  const handleDelete = useCallback(async () => {
+    if (!token || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteFeatureRequest(token, request._id);
+      onDelete?.(request._id);
+    } catch (err) {
+      console.error("Delete failed:", err);
+    } finally {
+      setDeleting(false);
+    }
+  }, [token, request._id, deleting, onDelete]);
+
+  const handleRestore = useCallback(async () => {
+    if (!token || restoring) return;
+    setRestoring(true);
+    try {
+      await restoreFeatureRequest(token, request._id);
+      onRestore?.(request._id);
+    } catch (err) {
+      console.error("Restore failed:", err);
+    } finally {
+      setRestoring(false);
+    }
+  }, [token, request._id, restoring, onRestore]);
 
   const timeSince = useMemo(() => {
     if (!request.createdAt) return "";
@@ -129,6 +164,32 @@ function RequestCard({ request, token, onVote }) {
         <div className="fr-admin-response">
           <span className="fr-admin-response-label">🛡️ Admin Response</span>
           <p>{request.adminResponse}</p>
+        </div>
+      )}
+
+      {canDelete && (
+        <div className="fr-card-actions">
+          <button
+            className="ghost-button fr-delete-btn"
+            onClick={handleDelete}
+            disabled={deleting}
+            title="Delete request"
+          >
+            {deleting ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      )}
+
+      {request.isDeleted && canDelete && (
+        <div className="fr-card-actions">
+          <button
+            className="ghost-button fr-restore-btn"
+            onClick={handleRestore}
+            disabled={restoring}
+            title="Restore request"
+          >
+            {restoring ? "Restoring..." : "Restore"}
+          </button>
         </div>
       )}
     </div>
@@ -242,6 +303,9 @@ export default function FeatureRequestCenter({ token, profile }) {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
+  const currentUserId = profile?.user?.id || profile?.id || profile?._id;
+  const currentUserRole = profile?.role || profile?.user?.role;
+
   const fetchRequests = useCallback(async (currentSort = sort, currentType = typeFilter, currentPage = page) => {
     setLoading(true);
     setError("");
@@ -279,9 +343,17 @@ export default function FeatureRequestCenter({ token, profile }) {
     setRequests(prev => prev.map(r => r._id === id ? { ...r, votes, userVote } : r));
   }, []);
 
+  const handleDelete = useCallback((id) => {
+    setRequests(prev => prev.filter(r => r._id !== id));
+    setTotal(prev => Math.max(0, prev - 1));
+  }, []);
+
+  const handleRestore = useCallback((id) => {
+    setRequests(prev => prev.map(r => r._id === id ? { ...r, isDeleted: false, deletedAt: null, deletedBy: null } : r));
+  }, []);
+
   return (
     <div className="feature-request-center">
-      {/* Header */}
       <div className="fr-header">
         <div className="fr-header-text">
           <h1 className="fr-title">💡 Feature Request Center</h1>
@@ -301,7 +373,6 @@ export default function FeatureRequestCenter({ token, profile }) {
         </button>
       </div>
 
-      {/* Submit Form Modal */}
       {showSubmitForm && (
         <div className="fr-modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowSubmitForm(false)}>
           <div className="fr-modal">
@@ -314,7 +385,6 @@ export default function FeatureRequestCenter({ token, profile }) {
         </div>
       )}
 
-      {/* Filters & Sort */}
       <div className="fr-controls">
         <div className="fr-sort-tabs">
           {SORT_OPTIONS.map(opt => (
@@ -340,7 +410,6 @@ export default function FeatureRequestCenter({ token, profile }) {
         </div>
       </div>
 
-      {/* Content */}
       {loading ? (
         <div className="fr-loading">
           <div className="fr-spinner" />
@@ -368,12 +437,15 @@ export default function FeatureRequestCenter({ token, profile }) {
                 key={request._id}
                 request={request}
                 token={token}
+                currentUserId={currentUserId}
+                currentUserRole={currentUserRole}
                 onVote={handleVote}
+                onDelete={handleDelete}
+                onRestore={handleRestore}
               />
             ))}
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="fr-pagination">
               <button
