@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmniAIApp — Next-Generation AI Platform</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.143.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.143.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+*,:after,:before{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  padding:0;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Roboto,sans-serif;
+  background:#020814;
+  color:#fff;
+  overflow-x:hidden;
+}
+#canvas-container{
+  position:fixed;
+  top:0;left:0;
+  width:100%;height:100%;
+  z-index:0;
+  pointer-events:none;
+}
+.content{
+  position:relative;
+  z-index:1;
+  min-height:200vh;
+  pointer-events:auto;
+  padding:0 24px;
+}
+.hero{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  min-height:100vh;
+  padding-top:40px;
+}
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 16px;
+  background:rgba(30,144,255,0.08);
+  border:1px solid rgba(30,144,255,0.15);
+  border-radius:100px;
+  font-size:13px;
+  font-weight:500;
+  color:#7FD8FF;
+  letter-spacing:.3px;
+  margin-bottom:28px;
+  backdrop-filter:blur(8px);
+}
+.badge-dot{
+  width:6px;height:6px;
+  border-radius:50%;
+  background:#42C8FF;
+  box-shadow:0 0 10px rgba(66,200,255,0.5);
+  animation:pulse-dot 2.4s ease-in-out infinite;
+}
+@keyframes pulse-dot{0%,100%{opacity:1;box-shadow:0 0 6px rgba(66,200,255,0.3)}50%{opacity:.7;box-shadow:0 0 14px rgba(66,200,255,0.7)}}
+.hero h1{
+  font-size:clamp(42px,8vw,88px);
+  font-weight:700;
+  line-height:1.05;
+  margin:0 0 20px;
+  letter-spacing:-1.5px;
+  background:linear-gradient(135deg,#f0f4ff 0%,#7FD8FF 40%,#42C8FF 70%,#1E90FF 100%);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.hero p{
+  font-size:clamp(16px,2.2vw,22px);
+  color:rgba(167,231,255,0.55);
+  max-width:600px;
+  line-height:1.5;
+  margin:0 0 40px;
+  font-weight:400;
+}
+.hero-actions{
+  display:flex;
+  gap:12px;
+  flex-wrap:wrap;
+  justify-content:center;
+}
+.btn-primary{
+  padding:14px 32px;
+  border-radius:100px;
+  border:none;
+  background:linear-gradient(135deg,#1E90FF,#42C8FF);
+  color:#fff;
+  font-size:16px;
+  font-weight:600;
+  cursor:pointer;
+  transition:all .3s;
+  font-family:inherit;
+}
+.btn-primary:hover{
+  transform:translateY(-2px);
+  box-shadow:0 12px 40px rgba(30,144,255,0.3);
+}
+.btn-ghost{
+  padding:14px 32px;
+  border-radius:100px;
+  border:1px solid rgba(66,200,255,0.2);
+  background:rgba(255,255,255,0.03);
+  color:rgba(167,231,255,0.7);
+  font-size:16px;
+  font-weight:500;
+  cursor:pointer;
+  transition:all .3s;
+  font-family:inherit;
+  backdrop-filter:blur(8px);
+}
+.btn-ghost:hover{
+  border-color:rgba(66,200,255,0.4);
+  background:rgba(255,255,255,0.06);
+  color:#fff;
+}
+.scroll-hint{
+  position:absolute;
+  bottom:40px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:8px;
+  color:rgba(167,231,255,0.25);
+  font-size:12px;
+  letter-spacing:1px;
+  text-transform:uppercase;
+  animation:float-up 2.6s ease-in-out infinite;
+}
+@keyframes float-up{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-8px)}}
+.scroll-arrow{width:18px;height:18px;border-right:1.5px solid rgba(167,231,255,0.25);border-bottom:1.5px solid rgba(167,231,255,0.25);transform:rotate(45deg);}
+.features{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+  gap:20px;
+  max-width:1100px;
+  margin:0 auto;
+  padding:40px 0 120px;
+}
+.feature-card{
+  padding:28px 24px;
+  background:rgba(2,8,20,0.6);
+  backdrop-filter:blur(24px);
+  -webkit-backdrop-filter:blur(24px);
+  border:1px solid rgba(30,144,255,0.08);
+  border-radius:20px;
+  transition:all .4s;
+}
+.feature-card:hover{
+  border-color:rgba(30,144,255,0.2);
+  transform:translateY(-4px);
+  box-shadow:0 20px 60px rgba(30,144,255,0.06);
+}
+.feature-icon{
+  width:44px;height:44px;
+  background:rgba(30,144,255,0.08);
+  border-radius:14px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;
+  margin-bottom:16px;
+}
+.feature-card h3{
+  font-size:18px;
+  font-weight:600;
+  margin:0 0 8px;
+  color:#f0f4ff;
+}
+.feature-card p{
+  font-size:14px;
+  color:rgba(167,231,255,0.4);
+  margin:0;
+  line-height:1.5;
+}
+nav{
+  position:fixed;
+  top:0;left:0;right:0;
+  z-index:10;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:16px 28px;
+  background:linear-gradient(180deg,rgba(2,8,20,0.85) 0%,transparent 100%);
+  pointer-events:auto;
+}
+.nav-logo{
+  font-size:20px;
+  font-weight:700;
+  color:#f0f4ff;
+  letter-spacing:-.5px;
+}
+.nav-logo span{color:#42C8FF;}
+.nav-links{display:flex;gap:24px;align-items:center;}
+.nav-links a{
+  color:rgba(167,231,255,0.5);
+  text-decoration:none;
+  font-size:14px;
+  font-weight:500;
+  transition:color .2s;
+}
+.nav-links a:hover{color:#7FD8FF;}
+.nav-btn{
+  padding:8px 20px;
+  border-radius:100px;
+  background:linear-gradient(135deg,#1E90FF,#42C8FF);
+  border:none;
+  color:#fff;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+  font-family:inherit;
+  transition:box-shadow .3s;
+}
+.nav-btn:hover{box-shadow:0 4px 20px rgba(30,144,255,0.3);}
+footer{
+  text-align:center;
+  padding:40px 20px;
+  color:rgba(167,231,255,0.15);
+  font-size:13px;
+}
+@media(max-width:640px){
+  .content{padding:0 16px;}
+  .hero h1{font-size:clamp(32px,12vw,52px);}
+  .hero p{font-size:16px;}
+  .features{grid-template-columns:1fr;}
+  nav{padding:12px 16px;}
+  .nav-links a{display:none;}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">Omni<span>AI</span></div>
+  <div class="nav-links">
+    <a href="#">Platform</a>
+    <a href="#">Solutions</a>
+    <a href="#">Docs</a>
+    <a href="#">Pricing</a>
+    <button class="nav-btn">Get Started</button>
+  </div>
+</nav>
+
+<div id="canvas-container"></div>
+
+<div class="content">
+  <section class="hero">
+    <div class="badge"><span class="badge-dot"></span> Now in Public Beta</div>
+    <h1>Intelligence<br>that understands<br>your world.</h1>
+    <p>OmniAI brings together reasoning, memory, and real-time data into a single unified platform. Built for teams that build the future.</p>
+    <div class="hero-actions">
+      <button class="btn-primary">Start Building Free</button>
+      <button class="btn-ghost">Watch Demo</button>
+    </div>
+    <div class="scroll-hint">
+      <span>Explore</span>
+      <div class="scroll-arrow"></div>
+    </div>
+  </section>
+
+  <div class="features">
+    <div class="feature-card">
+      <div class="feature-icon">🧠</div>
+      <h3>Reasoning Engine</h3>
+      <p>Multi-step reasoning with chain-of-thought, tool use, and self-correction capabilities.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🌐</div>
+      <h3>Real-Time Data</h3>
+      <p>Live web search, document parsing, and API integration with automatic context windows.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔐</div>
+      <h3>Enterprise Security</h3>
+      <p>SOC 2 compliant with end-to-end encryption, audit logs, and granular access controls.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⚡</div>
+      <h3>Low-Latency Inference</h3>
+      <p>Global edge network delivering sub-100ms response times for production workloads.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🛠️</div>
+      <h3>Custom Tools</h3>
+      <p>Build and deploy custom function calls, data connectors, and workflow automations.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <h3>Analytics Dashboard</h3>
+      <p>Usage metrics, cost tracking, performance monitoring, and A/B testing for prompts.</p>
+    </div>
+  </div>
+
+  <footer>© 2026 OmniAI. Crafted with intention.</footer>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+// === NOISE (GLSL implementation used in shader) ===
+const noiseGLSL = `
+// Simplex 3D Noise by Stefan Gustavson
+vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x,289.0);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1.0/6.0,1.0/3.0);
+  const vec4 D=vec4(0.0,0.5,1.0,2.0);
+  vec3 i=floor(v+dot(v,C.yyy));
+  vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz);
+  vec3 l=1.0-g;
+  vec3 i1=min(g.xyz,l.zxy);
+  vec3 i2=max(g.xyz,l.zxy);
+  vec3 x1=x0-i1+C.xxx;
+  vec3 x2=x0-i2+C.yyy;
+  vec3 x3=x0-D.yyy;
+  i=mod(i,289.0);
+  vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
+  float n_=1.0/7.0;
+  vec3 ns=n_*D.wyz-D.xzx;
+  vec4 j=p-49.0*floor(p*7.0*ns.z*ns.z);
+  vec4 x_=floor(j*ns.z);
+  vec4 y_=floor(j-7.0*x_);
+  vec4 x=x_*ns.x+ns.yyyy;
+  vec4 y=y_*ns.x+ns.yyyy;
+  vec4 h=1.0-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy);
+  vec4 b1=vec4(x.zw,y.zw);
+  vec4 s0=floor(b0)*2.0+1.0;
+  vec4 s1=floor(b1)*2.0+1.0;
+  vec4 sh=-step(h,vec4(0.0));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;
+  vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x);
+  vec3 p1=vec3(a0.zw,h.y);
+  vec3 p2=vec3(a1.xy,h.z);
+  vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);
+  m=m*m;
+  return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+}
+`;
+
+// === SCENE SETUP ===
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.position.set(0, 18, 16);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({
+  antialias: true,
+  alpha: false,
+  powerPreference: 'high-performance'
+});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.outputEncoding = THREE.sRGBEncoding;
+container.appendChild(renderer.domElement);
+
+// === POST PROCESSING ===
+const composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.3,  // strength
+  0.8,  // radius
+  0.1   // threshold
+);
+composer.addPass(bloomPass);
+
+const gammaPass = new ShaderPass(GammaCorrectionShader);
+composer.addPass(gammaPass);
+
+// === PARTICLE OCEAN ===
+const GRID_SIZE = 280;
+const SPACING = 0.12;
+const totalParticles = GRID_SIZE * GRID_SIZE;
+
+const positions = new Float32Array(totalParticles * 3);
+const colors = new Float32Array(totalParticles * 3);
+const sizes = new Float32Array(totalParticles);
+const randoms = new Float32Array(totalParticles);
+
+const centerOffset = (GRID_SIZE - 1) * SPACING * 0.5;
+
+for (let i = 0; i < GRID_SIZE; i++) {
+  for (let j = 0; j < GRID_SIZE; j++) {
+    const idx = i * GRID_SIZE + j;
+    const x = j * SPACING - centerOffset;
+    const z = i * SPACING - centerOffset;
+    positions[idx * 3] = x;
+    positions[idx * 3 + 1] = 0;
+    positions[idx * 3 + 2] = z;
+    colors[idx * 3] = 0.01;
+    colors[idx * 3 + 1] = 0.07;
+    colors[idx * 3 + 2] = 0.13;
+    sizes[idx] = 0.04 + Math.random() * 0.06;
+    randoms[idx] = Math.random();
+  }
+}
+
+const geometry = new THREE.BufferGeometry();
+geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+geometry.setAttribute('random', new THREE.BufferAttribute(randoms, 1));
+
+const vertexShader = `
+  uniform float uTime;
+  uniform float uFloatSpeed;
+  uniform float uWaveHeight;
+  uniform vec2 uCursor;
+  uniform float uCursorInfluence;
+
+  attribute float size;
+  attribute float random;
+
+  varying vec3 vColor;
+  varying float vHeight;
+
+  ${noiseGLSL}
+
+  void main() {
+    vec3 pos = position;
+
+    // Layered noise displacement
+    float n1 = snoise(vec3(pos.x * 0.12, pos.z * 0.12, uTime * 0.08 * uFloatSpeed)) * 0.8;
+    float n2 = snoise(vec3(pos.x * 0.3, pos.z * 0.3, uTime * 0.14 * uFloatSpeed)) * 0.4;
+    float n3 = snoise(vec3(pos.x * 0.5, pos.z * 0.5, uTime * 0.18 * uFloatSpeed)) * 0.2;
+    float height = (n1 + n2 + n3) * uWaveHeight;
+
+    // Cursor displacement - soft radial push
+    float dx = pos.x - uCursor.x;
+    float dz = pos.z - uCursor.y;
+    float dist = sqrt(dx*dx + dz*dz);
+    float push = exp(-dist * 1.2) * uCursorInfluence * 1.2;
+    pos.x += dx * push * 0.08;
+    pos.z += dz * push * 0.08;
+    pos.y = height;
+
+    // Color based on height
+    float h01 = (height / (uWaveHeight * 1.4)) + 0.5;
+    vec3 darkBlue = vec3(0.008, 0.035, 0.07);
+    vec3 midBlue = vec3(0.02, 0.12, 0.25);
+    vec3 brightCyan = vec3(0.15, 0.45, 0.75);
+    vec3 peakWhite = vec3(0.35, 0.70, 0.95);
+
+    vec3 col;
+    if (h01 < 0.4) {
+      col = mix(darkBlue, midBlue, h01 / 0.4);
+    } else if (h01 < 0.7) {
+      col = mix(midBlue, brightCyan, (h01 - 0.4) / 0.3);
+    } else {
+      col = mix(brightCyan, peakWhite, (h01 - 0.7) / 0.3);
+    }
+
+    vColor = col;
+    vHeight = h01;
+
+    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+    gl_PointSize = size * (300.0 / -mvPosition.z) * (0.5 + 0.5 * random);
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+const fragmentShader = `
+  varying vec3 vColor;
+  varying float vHeight;
+
+  void main() {
+    vec2 center = gl_PointCoord - vec2(0.5);
+    float dist = length(center);
+    if (dist > 0.5) discard;
+
+    float alpha = 0.22 * (1.0 - smoothstep(0.0, 0.5, dist));
+    alpha *= (0.7 + 0.3 * vHeight);
+
+    // Soft glow halo
+    float glow = exp(-dist * 6.0) * 0.15;
+
+    gl_FragColor = vec4(vColor + glow, alpha);
+  }
+`;
+
+const uniforms = {
+  uTime: { value: 0 },
+  uFloatSpeed: { value: 1.0 },
+  uWaveHeight: { value: 1.8 },
+  uCursor: { value: new THREE.Vector2(0, 0) },
+  uCursorInfluence: { value: 0 }
+};
+
+const material = new THREE.ShaderMaterial({
+  uniforms,
+  vertexShader,
+  fragmentShader,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending
+});
+
+const particleSystem = new THREE.Points(geometry, material);
+scene.add(particleSystem);
+
+// === ATMOSPHERE FLOATING PARTICLES ===
+const ATMOSPHERE_COUNT = 600;
+const atmoPositions = new Float32Array(ATMOSPHERE_COUNT * 3);
+const atmoSizes = new Float32Array(ATMOSPHERE_COUNT);
+const atmoSpeeds = new Float32Array(ATMOSPHERE_COUNT);
+const atmoPhases = new Float32Array(ATMOSPHERE_COUNT);
+const atmoColors = new Float32Array(ATMOSPHERE_COUNT * 3);
+
+for (let i = 0; i < ATMOSPHERE_COUNT; i++) {
+  const radius = 6 + Math.random() * 20;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  atmoPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+  atmoPositions[i * 3 + 1] = -5 + Math.random() * 14;
+  atmoPositions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta) - 5;
+  atmoSizes[i] = 0.03 + Math.random() * 0.08;
+  atmoSpeeds[i] = 0.1 + Math.random() * 0.3;
+  atmoPhases[i] = Math.random() * Math.PI * 2;
+  const t = Math.random();
+  atmoColors[i * 3] = 0.1 + t * 0.2;
+  atmoColors[i * 3 + 1] = 0.3 + t * 0.4;
+  atmoColors[i * 3 + 2] = 0.5 + t * 0.4;
+}
+
+const atmoGeo = new THREE.BufferGeometry();
+atmoGeo.setAttribute('position', new THREE.BufferAttribute(atmoPositions, 3));
+atmoGeo.setAttribute('size', new THREE.BufferAttribute(atmoSizes, 1));
+atmoGeo.setAttribute('color', new THREE.BufferAttribute(atmoColors, 1));
+
+const atmoMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: `
+    attribute float size;
+    attribute vec3 color;
+    varying vec3 vCol;
+    uniform float uTime;
+    void main() {
+      vCol = color;
+      vec3 pos = position;
+      pos.x += sin(uTime * 0.1 + position.y * 0.3) * 0.3;
+      pos.z += cos(uTime * 0.08 + position.x * 0.2) * 0.3;
+      vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+      gl_PointSize = size * (200.0 / -mvPos.z);
+      gl_Position = projectionMatrix * mvPos;
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vCol;
+    void main() {
+      vec2 c = gl_PointCoord - vec2(0.5);
+      float d = length(c);
+      if (d > 0.5) discard;
+      float a = 0.12 * (1.0 - smoothstep(0.0, 0.5, d));
+      gl_FragColor = vec4(vCol, a);
+    }
+  `,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending
+});
+
+const atmoMesh = new THREE.Points(atmoGeo, atmoMat);
+scene.add(atmoMesh);
+
+// === CORNER GLOW OVERLAY (procedural full-screen quad) ===
+const glowGeo = new THREE.PlaneGeometry(2, 2);
+
+const glowMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform float uTime;
+    varying vec2 vUv;
+
+    void main() {
+      // Corner glow - blue gradient concentrated in corners
+      float cornerGlow = 0.0;
+      // Bottom-left
+      float bl = length(vUv - vec2(0.0, 0.0));
+      cornerGlow += exp(-bl * 2.8) * 0.25;
+      // Top-right
+      float tr = length(vUv - vec2(1.0, 1.0));
+      cornerGlow += exp(-tr * 2.8) * 0.25;
+      // Bottom-right (subtle)
+      float br = length(vUv - vec2(1.0, 0.0));
+      cornerGlow += exp(-br * 3.5) * 0.1;
+      // Top-left (subtle)
+      float tl = length(vUv - vec2(0.0, 1.0));
+      cornerGlow += exp(-tl * 3.5) * 0.1;
+
+      // Pulsing
+      float pulse = 0.85 + 0.15 * sin(uTime * 0.15);
+
+      // Color - blue corner glow, keep center dark
+      vec3 glowColor = vec3(0.05, 0.2, 0.45) * cornerGlow * pulse;
+
+      // Very subtle edge lines
+      float edge = 1.0 - abs(vUv.x - 0.5) * 2.0;
+      edge *= 1.0 - abs(vUv.y - 0.5) * 2.0;
+      float edgeGlow = pow(1.0 - edge, 1.5) * 0.03;
+      edgeGlow *= 0.5 + 0.5 * sin(uTime * 0.1 + vUv.x * 3.0 + vUv.y * 3.0);
+
+      gl_FragColor = vec4(glowColor + vec3(0.0, 0.03, 0.08) * edgeGlow, 1.0);
+    }
+  `,
+  transparent: false,
+  depthWrite: false
+});
+
+const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+glowMesh.renderOrder = -1;
+scene.add(glowMesh);
+
+// === STATE ===
+const target = { height: 18, speed: 1.0, waveHeight: 1.8 };
+const current = { height: 18, speed: 1.0, waveHeight: 1.8 };
+const cursor = { x: 0, y: 0, targetX: 0, targetY: 0, influence: 0, targetInfluence: 0 };
+const scroll = { current: 0, target: 0 };
+let isMobile = window.innerWidth < 768;
+
+// === SCROLL HANDLING ===
+function onScroll() {
+  const sy = window.scrollY;
+  const maxScroll = Math.max(document.body.scrollHeight - window.innerHeight, 1);
+  const progress = Math.min(sy / maxScroll, 1);
+  scroll.target = progress;
+
+  // Map scroll to camera fly-through
+  target.height = 18 - progress * 12;        // 18 → 6
+  target.speed = 1.0 + progress * 1.0;       // 1.0 → 2.0
+  target.waveHeight = 1.8 + progress * 1.4;  // 1.8 → 3.2
+}
+window.addEventListener('scroll', onScroll, { passive: true });
+
+// === CURSOR HANDLING ===
+function onMouseMove(e) {
+  const x = (e.clientX / window.innerWidth) * 2 - 1;
+  const y = -(e.clientY / window.innerHeight) * 2 + 1;
+  cursor.targetX = x * (isMobile ? 3 : 5);
+  cursor.targetY = y * (isMobile ? 3 : 5);
+  cursor.targetInfluence = 1.0;
+}
+function onMouseLeave() {
+  cursor.targetInfluence = 0;
+}
+window.addEventListener('mousemove', onMouseMove, { passive: true });
+window.addEventListener('mouseleave', onMouseLeave, { passive: true });
+
+// Touch support
+let touchId = null;
+function onTouchMove(e) {
+  const touch = e.touches[0];
+  if (!touch) return;
+  const x = (touch.clientX / window.innerWidth) * 2 - 1;
+  const y = -(touch.clientY / window.innerHeight) * 2 + 1;
+  cursor.targetX = x * 3;
+  cursor.targetY = y * 3;
+  cursor.targetInfluence = 0.6;
+}
+function onTouchEnd() {
+  cursor.targetInfluence = 0;
+}
+window.addEventListener('touchmove', onTouchMove, { passive: true });
+window.addEventListener('touchend', onTouchEnd, { passive: true });
+
+// === RESIZE ===
+function onResize() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  isMobile = w < 768;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  composer.setSize(w, h);
+}
+window.addEventListener('resize', onResize);
+
+// === ANIMATION LOOP ===
+const clock = new THREE.Clock();
+
+function animate() {
+  const dt = clock.getDelta();
+  const elapsed = clock.getElapsedTime();
+
+  // Smooth scroll interpolation
+  scroll.current += (scroll.target - scroll.current) * 0.03;
+
+  // Smooth camera parameters
+  current.height += (target.height - current.height) * 0.03;
+  current.speed += (target.speed - current.speed) * 0.03;
+  current.waveHeight += (target.waveHeight - current.waveHeight) * 0.03;
+
+  // Smooth cursor
+  cursor.x += (cursor.targetX - cursor.x) * 0.04;
+  cursor.y += (cursor.targetY - cursor.y) * 0.04;
+  cursor.influence += (cursor.targetInfluence - cursor.influence) * 0.04;
+
+  // Camera position
+  const camY = current.height;
+  const camZ = 16 - scroll.current * 6;
+  const parallaxX = cursor.x * 0.08;
+  const parallaxY = cursor.y * 0.05;
+
+  camera.position.x = parallaxX;
+  camera.position.y = camY + parallaxY;
+  camera.position.z = camZ + cursor.y * 0.06;
+  camera.lookAt(parallaxX * 0.3, 0, -scroll.current * 2);
+
+  // Update particle uniforms
+  uniforms.uTime.value = elapsed;
+  uniforms.uFloatSpeed.value = current.speed;
+  uniforms.uWaveHeight.value = current.waveHeight;
+  uniforms.uCursor.value.set(cursor.x * 0.3, cursor.y * 0.3 + scroll.current * 0.5);
+  uniforms.uCursorInfluence.value = cursor.influence;
+
+  // Update atmosphere
+  atmoMat.uniforms.uTime.value = elapsed;
+  atmoMesh.position.copy(camera.position);
+  atmoMesh.position.y -= 1;
+
+  // Update corner glow
+  glowMat.uniforms.uTime.value = elapsed;
+
+  // Render
+  composer.render();
+  requestAnimationFrame(animate);
+}
+
+animate();
+
+// Initial scroll position
+onScroll();
+
+console.log('OmniAI particle field initialized.');
+console.log(`Particles: ${totalParticles.toLocaleString()} ocean + ${ATMOSPHERE_COUNT} atmosphere`);
+</script>
+</body>
+</html>
